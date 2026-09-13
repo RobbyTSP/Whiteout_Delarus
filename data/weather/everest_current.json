@@ -1,0 +1,56 @@
+{
+  "everest_summit": {
+    "station": "Mount Everest Summit",
+    "coordinates": {
+      "lat": 27.9881,
+      "lon": 86.925
+    },
+    "elevation_m": 8848,
+    "timestamp": "2026-09-13T13:00",
+    "temperature_celsius": -20.7,
+    "apparent_temperature_celsius": -24.7,
+    "relative_humidity_percent": 98,
+    "surface_pressure_hpa": 354.5,
+    "wind_speed_kmh": 1.0,
+    "wind_direction_deg": 135,
+    "wind_gusts_kmh": 25.9,
+    "cloud_cover_percent": 100,
+    "weather_code": 3
+  },
+  "everest_base_camp": {
+    "station": "Everest Base Camp (South)",
+    "coordinates": {
+      "lat": 28.0044,
+      "lon": 86.8528
+    },
+    "elevation_m": 5364,
+    "timestamp": "2026-09-13T13:00",
+    "temperature_celsius": 0.4,
+    "apparent_temperature_celsius": -2.2,
+    "relative_humidity_percent": 93,
+    "surface_pressure_hpa": 552.5,
+    "wind_speed_kmh": 2.8,
+    "wind_direction_deg": 35,
+    "wind_gusts_kmh": 12.2,
+    "cloud_cover_percent": 73,
+    "weather_code": 2
+  },
+  "namche_bazaar": {
+    "station": "Namche Bazaar (Gateway to Everest)",
+    "coordinates": {
+      "lat": 27.8069,
+      "lon": 86.714
+    },
+    "elevation_m": 3440,
+    "timestamp": "2026-09-13T13:00",
+    "temperature_celsius": 8.3,
+    "apparent_temperature_celsius": 7.7,
+    "relative_humidity_percent": 100,
+    "surface_pressure_hpa": 669.2,
+    "wind_speed_kmh": 0.8,
+    "wind_direction_deg": 153,
+    "wind_gusts_kmh": 15.5,
+    "cloud_cover_percent": 100,
+    "weather_code": 3
+  }
+}

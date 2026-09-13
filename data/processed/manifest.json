@@ -1,0 +1,42 @@
+{
+  "region_name": "Mount Everest Massif & Sagarmatha",
+  "zoom_level": 12,
+  "grid_resolution": {
+    "width": 1024,
+    "height": 1024,
+    "num_tiles_x": 4,
+    "num_tiles_y": 4
+  },
+  "geographic_bounds": {
+    "west_lon": 86.8359375,
+    "east_lon": 87.1875,
+    "south_lat": 27.76132987450522,
+    "north_lat": 28.07198030177985,
+    "center_lon": 87.01171875,
+    "center_lat": 27.916655088142534
+  },
+  "metric_extents": {
+    "width_meters": 34610.51254563512,
+    "height_meters": 34523.49964439187,
+    "dx_meters_per_pixel": 33.7993286578468,
+    "dy_meters_per_pixel": 33.71435512147644
+  },
+  "elevation_meters": {
+    "min": 3651.0,
+    "max": 8753.0,
+    "mean": 5643.91650390625,
+    "range": 5102.0
+  },
+  "files": {
+    "raw_float32": "everest_dem_float32.bin",
+    "heightmap_16bit": "everest_heightmap_16bit.png",
+    "satellite_albedo": "everest_satellite_albedo.jpg",
+    "normal_map": "everest_normal_map.png"
+  },
+  "vulkan_binding_guidelines": {
+    "terrain_scale_x": 34610.51254563512,
+    "terrain_scale_y": 34523.49964439187,
+    "height_offset": 3651.0,
+    "height_scale": 5102.0
+  }
+}

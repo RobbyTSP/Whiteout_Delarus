@@ -1,0 +1,29 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# C++ / CMake / Build
+build/
+bin/
+out/
+cmake-build-*/
+*.o
+*.obj
+*.spv
+
+# Large raw datasets / cache
+data/cache/
+data/raw/
+*.tar
+*.tar.gz
+*.zip
+
+# IDEs & System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
