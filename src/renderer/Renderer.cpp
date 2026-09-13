@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <algorithm>
 #include <stdexcept>
 #include <glm/gtc/matrix_transform.hpp>
 #include "../rhi/VulkanTexture.hpp"
@@ -99,10 +100,10 @@ void Renderer::createCommandBuffers() {
 void Renderer::initTexturesAndDescriptors() {
     VkDevice device = m_context->getDevice();
 
-    // 1. Create Descriptor Pool for 18 combined image samplers
+    // 1. Create Descriptor Pool for 19 combined image samplers
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 18;
+    poolSize.descriptorCount = 19;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -126,7 +127,7 @@ void Renderer::initTexturesAndDescriptors() {
         throw std::runtime_error("Failed to allocate terrain texture descriptor set!");
     }
 
-    // 3. Load all 18 texture maps (ESRI satellite, Macro Normal, and ambientCG CC0 PBR sets)
+    // 3. Load all 19 texture maps (ESRI satellite, Macro Normal, Geomorphology, and 4x ambientCG CC0 PBR sets)
     struct TexDef {
         std::string path;
         bool isSrgb;
@@ -160,14 +161,17 @@ void Renderer::initTexturesAndDescriptors() {
         {DATA_DIR "/textures/glacier/albedo.jpg", true, false},
         {DATA_DIR "/textures/glacier/normal.jpg", false, false},
         {DATA_DIR "/textures/glacier/roughness.jpg", false, false},
-        {DATA_DIR "/textures/glacier/displacement.jpg", false, false}
+        {DATA_DIR "/textures/glacier/displacement.jpg", false, false},
+
+        // 18: Geomorphology (R: Couloirs/Flow, G: Talus Scree, B: Ridge Crests, A: Wind Scour)
+        {DATA_DIR "/processed/everest_geomorphology.png", false, true}
     };
 
     m_textures.reserve(texDefs.size());
     std::vector<VkDescriptorImageInfo> imageInfos(texDefs.size());
     std::vector<VkWriteDescriptorSet> writes(texDefs.size());
 
-    std::cout << "[Renderer] Loading 18 PBR & Satellite textures into GPU VRAM..." << std::endl;
+    std::cout << "[Renderer] Loading 19 PBR, Geomorphology & Satellite textures into GPU VRAM..." << std::endl;
     for (size_t i = 0; i < texDefs.size(); i++) {
         m_textures.push_back(std::make_unique<rhi::VulkanTexture>(
             *m_context,
@@ -190,7 +194,7 @@ void Renderer::initTexturesAndDescriptors() {
     }
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-    std::cout << "[Renderer] Successfully bound all 18 PBR & Satellite textures to Descriptor Set." << std::endl;
+    std::cout << "[Renderer] Successfully bound all 19 PBR, Geomorphology & Satellite textures to Descriptor Set." << std::endl;
 }
 
 void Renderer::onResize() {
@@ -437,7 +441,13 @@ void Renderer::renderFrame(const core::Camera& camera, float totalTime) {
     colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.clearValue.color = {{0.35f, 0.52f, 0.72f, 1.0f}}; // Himalayan sky blue
+
+    // Dynamic Himalayan Stratospheric Sky: Deep indigo/navy above 7000m
+    float camAltRatio = std::clamp((camera.getPosition().y - 4500.0f) / 4348.0f, 0.0f, 1.0f);
+    glm::vec3 valleySky(0.35f, 0.52f, 0.72f);
+    glm::vec3 stratosphericSky(0.06f, 0.09f, 0.22f);
+    glm::vec3 clearSky = glm::mix(valleySky, stratosphericSky, camAltRatio * 0.85f);
+    colorAttachment.clearValue.color = {{clearSky.r, clearSky.g, clearSky.b, 1.0f}};
 
     VkRenderingAttachmentInfo depthAttachment{};
     depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;

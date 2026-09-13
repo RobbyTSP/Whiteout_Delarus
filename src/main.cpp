@@ -13,10 +13,11 @@ int main(int argc, char* argv[]) {
     (void)argv;
 
     std::cout << "=========================================================\n";
-    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA FIRST-PERSON GAME (STEP 3)\n";
+    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 5 (1:1 PART I)\n";
     std::cout << " Rendering API: Vulkan 1.3+ / 1.4 (Dynamic Rendering)\n";
     std::cout << " Shading Language: Slang (SPIR-V)\n";
-    std::cout << " Physics: 1:1 Bilinear Terrain Collision & Ground Physics\n";
+    std::cout << " Geomorphology: Triplanar PBR, Couloir Fluting, Yellow Band Strata\n";
+    std::cout << " Physics: 1:1 Bilinear Terrain Collision & Alpine Footstep Physics\n";
     std::cout << " Controls:\n";
     std::cout << "   - Mouse Move: Look around (Click window to capture mouse)\n";
     std::cout << "   - W / A / S / D: Walk forward / left / back / right\n";
@@ -57,17 +58,44 @@ int main(int argc, char* argv[]) {
 
         whiteout::core::Timer timer;
 
-        // Check for --screenshot CLI argument
+        // Check for CLI arguments: --preset <N>, --screenshot <path>, --cam <x> <y> <z> <yaw> <pitch>
         std::string screenshotPath = "";
+        int initialPreset = 1;
+        bool hasCustomCam = false;
+        glm::vec3 customCamPos(0.0f);
+        float customYaw = 0.0f, customPitch = 0.0f;
+
         for (int i = 1; i < argc; i++) {
             if (std::string(argv[i]) == "--screenshot") {
-                screenshotPath = (i + 1 < argc) ? argv[i + 1] : "everest_first_person.png";
-                break;
+                screenshotPath = (i + 1 < argc) ? argv[i + 1] : "everest_step5.png";
+            } else if (std::string(argv[i]) == "--preset" && i + 1 < argc) {
+                initialPreset = std::atoi(argv[i + 1]);
+            } else if (std::string(argv[i]) == "--cam" && i + 5 < argc) {
+                customCamPos.x = static_cast<float>(std::atof(argv[i + 1]));
+                customCamPos.y = static_cast<float>(std::atof(argv[i + 2]));
+                customCamPos.z = static_cast<float>(std::atof(argv[i + 3]));
+                customYaw = static_cast<float>(std::atof(argv[i + 4]));
+                customPitch = static_cast<float>(std::atof(argv[i + 5]));
+                hasCustomCam = true;
             }
         }
 
+        if (initialPreset >= 1 && initialPreset <= 4) {
+            player.teleportToPreset(initialPreset);
+        }
+
+        if (hasCustomCam) {
+            camera.setPosition(customCamPos);
+            glm::vec3 lookDir;
+            lookDir.x = std::cos(glm::radians(customYaw)) * std::cos(glm::radians(customPitch));
+            lookDir.y = std::sin(glm::radians(customPitch));
+            lookDir.z = std::sin(glm::radians(customYaw)) * std::cos(glm::radians(customPitch));
+            camera.setLookAt(customCamPos + lookDir);
+        }
+
         if (!screenshotPath.empty()) {
-            std::cout << "[Engine] Screenshot mode active: Rendering first-person frame to " << screenshotPath << std::endl;
+            std::cout << "[Engine] Screenshot mode active: Rendering frame to " << screenshotPath
+                      << " (Preset " << initialPreset << " | " << player.getTelemetryString() << ")" << std::endl;
             for (int f = 0; f < 5; f++) {
                 timer.tick();
                 renderer.renderFrame(camera, timer.totalTime());

@@ -54,10 +54,21 @@ void Player::teleportToPreset(int preset) {
     m_velocity = glm::vec3(0.0f);
     m_isGrounded = true;
 
-    m_camera.setPosition(m_position + glm::vec3(0.0f, m_currentEyeHeight, 0.0f));
+    m_currentGeology = m_collider.getGeologyInfo(m_position.x, m_position.z);
+    m_currentSlope = m_currentGeology.slopeDegrees;
+
+    glm::vec3 eyePos = m_position + glm::vec3(0.0f, m_currentEyeHeight, 0.0f);
+    m_camera.setPosition(eyePos);
+
+    glm::vec3 lookDir;
+    lookDir.x = std::cos(glm::radians(m_yaw)) * std::cos(glm::radians(m_pitch));
+    lookDir.y = std::sin(glm::radians(m_pitch));
+    lookDir.z = std::sin(glm::radians(m_yaw)) * std::cos(glm::radians(m_pitch));
+    m_camera.setLookAt(eyePos + lookDir);
 
     std::cout << "[Player] Teleported to: " << m_currentLocationName
-              << " | Altitude: " << static_cast<int>(groundY) << " m" << std::endl;
+              << " | Altitude: " << static_cast<int>(groundY) << " m"
+              << " | " << m_currentGeology.formationName << std::endl;
 }
 
 void Player::toggleMode() {
@@ -126,19 +137,44 @@ void Player::updateFirstPerson(float deltaTime, const core::WindowEventState& in
         moveDir = glm::normalize(moveDir);
     }
 
-    // 3. Terrain Slope calculation and speed adjustment
-    m_currentSlope = m_collider.getSlopeAngleDegrees(m_position.x, m_position.z);
+    // 3. Terrain Slope & Geomorphological Surface Calculation
+    m_currentGeology = m_collider.getGeologyInfo(m_position.x, m_position.z);
+    m_currentSlope = m_currentGeology.slopeDegrees;
+
+    // Alpine surface footstep physics:
+    float surfaceFriction = 1.0f;
+    glm::vec3 surfaceSlide(0.0f);
+
+    if (m_currentGeology.surfaceType == AlpineSurfaceType::TalusScreeSlope) {
+        // Unstable scree slope: shifting gravel causes downhill sliding and traction reduction
+        surfaceFriction = 0.78f;
+        glm::vec3 normal = m_collider.getNormal(m_position.x, m_position.z);
+        surfaceSlide = glm::vec3(normal.x, 0.0f, normal.z) * 1.6f;
+    } else if (m_currentGeology.surfaceType == AlpineSurfaceType::GlacialBlueIce) {
+        // Glacial blue ice: reduced turning traction
+        surfaceFriction = 0.88f;
+    }
 
     // Realistic alpine slope penalty: steep climbs slow down movement
     float slopeSpeedModifier = 1.0f;
     if (m_currentSlope > 20.0f) {
         // Slow down proportionally on steep slopes
-        slopeSpeedModifier = std::max(0.20f, 1.0f - ((m_currentSlope - 20.0f) / 45.0f));
+        slopeSpeedModifier = std::max(0.18f, 1.0f - ((m_currentSlope - 20.0f) / 45.0f));
+    }
+
+    // High-altitude jet stream headwind drag
+    glm::vec3 jetStreamDir(-0.92f, 0.0f, -0.38f);
+    float windHeadwind = glm::dot(moveDir, -jetStreamDir);
+    float windPenalty = 1.0f;
+    if (m_position.y > 6000.0f && windHeadwind > 0.0f) {
+        windPenalty = 1.0f - (m_currentGeology.jetStreamSpeedKmh / 260.0f) * windHeadwind;
+        windPenalty = std::max(0.35f, windPenalty);
     }
 
     // Target walking/sprinting speed
-    float targetSpeed = (input.sprint ? m_sprintSpeed : (input.crouch ? m_crouchSpeed : m_walkSpeed)) * slopeSpeedModifier;
-    glm::vec3 targetVelocity = moveDir * targetSpeed;
+    float targetSpeed = (input.sprint ? m_sprintSpeed : (input.crouch ? m_crouchSpeed : m_walkSpeed))
+                        * slopeSpeedModifier * surfaceFriction * windPenalty;
+    glm::vec3 targetVelocity = moveDir * targetSpeed + surfaceSlide;
 
     // Smooth horizontal acceleration/braking
     float accel = m_isGrounded ? 12.0f : 2.5f; // reduced air control
@@ -215,7 +251,8 @@ void Player::updateFirstPerson(float deltaTime, const core::WindowEventState& in
 void Player::updateFreeFlight(float deltaTime, const core::WindowEventState& input) {
     m_camera.update(deltaTime, input);
     m_position = m_camera.getPosition();
-    m_currentSlope = m_collider.getSlopeAngleDegrees(m_position.x, m_position.z);
+    m_currentGeology = m_collider.getGeologyInfo(m_position.x, m_position.z);
+    m_currentSlope = m_currentGeology.slopeDegrees;
 }
 
 std::string Player::getTelemetryString() const {
@@ -232,9 +269,14 @@ std::string Player::getTelemetryString() const {
         if (isInDeathZone()) {
             ss << " [DEATH ZONE > 8000m!]";
         }
+        ss << " | Formation: " << m_currentGeology.formationName
+           << " | Footing: " << m_currentGeology.surfaceTypeName
+           << " | Jet Stream: WNW " << static_cast<int>(m_currentGeology.jetStreamSpeedKmh) << " km/h"
+           << " (Chill: " << static_cast<int>(m_currentGeology.windChillCelsius) << "°C)";
     } else {
         ss << "[DRONE FLY] "
            << "Alt: " << static_cast<int>(m_position.y) << "m | "
+           << "Formation: " << m_currentGeology.formationName << " | "
            << "Pos: (" << static_cast<int>(m_position.x) << ", " << static_cast<int>(m_position.z) << ") | "
            << "Far: 150km";
     }

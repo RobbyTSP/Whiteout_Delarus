@@ -30,6 +30,7 @@ public:
     [[nodiscard]] float getOxygenSaturation() const;
     [[nodiscard]] bool isInDeathZone() const { return m_position.y >= 8000.0f; }
     [[nodiscard]] float getTotalDistance() const { return m_totalDistance; }
+    [[nodiscard]] const AlpineGeologyInfo& getGeologyInfo() const { return m_currentGeology; }
     [[nodiscard]] std::string getTelemetryString() const;
 
 private:
@@ -61,6 +62,7 @@ private:
     float m_sprintSpeed = 10.0f;   // ~36 km/h sprint
     float m_crouchSpeed = 2.0f;
     float m_currentSlope = 0.0f;
+    AlpineGeologyInfo m_currentGeology{};
 
     // Head bobbing
     float m_walkCycle = 0.0f;

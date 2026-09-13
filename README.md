@@ -181,11 +181,58 @@ cmake --build build
 
 ---
 
+## 🏔️ Schritt 5: 1:1 Geomorphologie, Triplanare PBR-Projektion & Geologische Strata (1:1 Part I - Abgeschlossen)
+
+In Schritt 5 wurden die fotorealistischen und physikalischen Prinzipien moderner Terrain-Generatoren (Gaea, World Creator, Houdini) direkt in die Vulkan/Slang-Engine und das Bergsteiger-Gameplay integriert:
+
+* **Triplanare PBR-Projektion an Steilwänden:**
+  * Beseitigt die berüchtigte **vertikale Texturstreckung** an Steilwänden (z. B. der 62°–85° steilen Lhotse-Wand und Everest-Nordwand) vollständig.
+  * Fels-Albedo, Normalen und Rauheit werden aus 3 orthogonalen Ebenen ($X, Y, Z$) im Weltkoordinatenraum projiziert.
+  * Spezielle UDN/Whiteout-Normalenreorientierung mit Normalen-Gewichten $W = |N_{\text{geom}}|^4$ sorgt für homogene Meter-Auflösung ohne sichtbare Nähte oder Dehnungen.
+* **Authentische Everest-Geologie & Schichtenfolge (Strata):**
+  * **Greater Himalayan Crystalline (< 7.000 m):** Dunkles Gneis-, Granit- und Migmatit-Basement des Khumbu-Tals.
+  * **North Col Formation (7.000 m – 8.200 m):** Dunkelgraue und rostbraune metamorphe Pelit-Schiefer und Phyllite.
+  * **Das "Yellow Band" (8.200 m – 8.600 m):** Das berühmte, ~400 m mächtige Band aus gold-ockerfarbenem, rekristallisiertem dolomitischem Marmor, das mit ~15° Nordost-Neigung die Südwest- und Nordwand durchzieht (sowohl aus der Ferne als auch aus nächster Nähe detailliert sichtbar).
+  * **Qomolangma-Formation (> 8.600 m):** Ordovizischer Gipfelkalkstein und heller Marmor der Gipfelpyramide und des Hillary Step.
+* **Gaea-inspirierte Geomorphologie-Map ([`scripts/generate_geomorphology.py`](scripts/generate_geomorphology.py)):**
+  * Aus dem 1024×1024 Float32 DEM berechnete 4-Kanal Geomorphologie-Textur (19. Bindung im Descriptor Set):
+    * **Rot (Couloir Fluting):** Hydro- und Lawinenfluss-Konvergenz in Rinnen und Karen.
+    * **Grün (Thermale Schuttkegel):** Felssturz-Ablagerungen an Steilwandfüßen im Schüttungswinkel von 25°–38° (Talus Scree Fans).
+    * **Blau (Grat-Schärfe):** Konvexe Laplace-Krümmung für messerscharfe Grate und Arêtes.
+    * **Alpha (Jet-Stream Wind-Scour):** Luv-Abblasung nackten Felses vs. Lee-Schneedrift.
+* **Direktionale Lawinen-Rinnen (Couloir Fluting):**
+  * Entlang des Hanggradienten $\nabla h$ fließen Lawinen und Spindrift die Falllinie hinab.
+  * Schnee und Firneis klammern sich tief in die Rinnenfurchen, während die scharfen Felsrippen kahl bleiben.
+* **Stratosphärisches Alpen-Licht & Klima-Physik:**
+  * **Atmosphärische Dichte:** Über 7.000 m sinkt der Luftdruck auf ~33% des Meeresniveaus; der Himmel dunkelt von Azurblau in tiefes, kosmisches Indigo-Nachtblau ab.
+  * **Diamond Dust & Microfacet-Glanz:** Kristalliner Mikro-Glimmer auf Firnschnee und Gletschereis.
+  * **Jet-Stream-Widerstand:** Bis zu 140+ km/h Gegenwind am Gipfelgrat mit Windchill-Temperaturen bis unter $-70^\circ\text{C}$.
+  * **Bodenphysik:** Unstabile Talus-Schotterhänge erzeugen Rutschbewegungen und Trittunsicherheit unter den Bergschuhen.
+
+### 🎮 Neue CLI-Optionen
+
+```bash
+# Geomorphologie-Karte neu berechnen (Python venv)
+.venv/bin/python scripts/generate_geomorphology.py
+
+# Kompilieren
+cmake --build build
+
+# Direkt an Preset starten (1=Base Camp, 2=Summit, 3=Lhotse, 4=Ama Dablam)
+./build/whiteout --preset 2
+
+# Spezifische Kameraposition für Screenshots
+./build/whiteout --cam -8537 12500 -12000 90 -45 --screenshot everest_drone.png
+```
+
+---
+
 ## 🔭 Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
 * [x] **Schritt 2:** C++20 / Vulkan Initialisierung, Dynamic Rendering, Device-Local Buffers & Slang Shader Pipeline.
 * [x] **Schritt 3:** First-Person Bergsteiger-Spiel mit 1:1 Terrain-Kollision, Laufen, Springen, Hangphysik & Schnellreise.
 * [x] **Schritt 4:** 18-Kanal PBR-Pipeline, POM (Parallax Occlusion Mapping), ESRI-Satelliten-Overlay & Slope Splatting.
-* [ ] **Schritt 5:** CDLOD / Terrain Clipmaps oder Mesh Shader für kontinuierliches LOD-Streaming über den gesamten Himalaya-Gebirgsbogen.
-* [ ] **Schritt 6:** Dynamischer Tag-Nacht-Zyklus, volumetrische Wolken & Integration der Open-Meteo Echtzeit-Wetterdaten.
+* [x] **Schritt 5 (1:1 Part I):** Triplanare PBR-Projektion (streckungsfreie Steilwände), Gaea-Geomorphologie, Couloir Fluting, Everest Yellow Band Strata & stratosphärische Alpin-Physik.
+* [ ] **Schritt 6 (1:1 Part II):** CDLOD / Terrain Clipmaps für kontinuierliches geometrisches LOD-Streaming, volumetrische Wolken/Nebel, dynamischer Tag-Nacht-Zyklus & Live Open-Meteo Wetter.
+

@@ -100,4 +100,76 @@ float TerrainCollider::getSlopeAngleDegrees(float worldX, float worldZ) const {
     return glm::degrees(std::acos(cosAngle));
 }
 
+AlpineGeologyInfo TerrainCollider::getGeologyInfo(float worldX, float worldZ) const {
+    AlpineGeologyInfo info{};
+    float height = getHeight(worldX, worldZ);
+    glm::vec3 normal = getNormal(worldX, worldZ);
+    float slope = getSlopeAngleDegrees(worldX, worldZ);
+    info.slopeDegrees = slope;
+
+    // 1. Dipping strata height (15° northward dip of South Tibetan Detachment system)
+    float strataH = height - 0.22f * worldZ;
+    info.strataElevation = strataH;
+
+    if (strataH >= 8600.0f) {
+        info.formation = GeologicalFormation::QomolangmaFormation;
+        info.formationName = "Qomolangma Summit Formation (Ordovician Limestone/Marble)";
+    } else if (strataH >= 8180.0f) {
+        info.formation = GeologicalFormation::TheYellowBand;
+        info.formationName = "The Yellow Band (Golden Dolomitic Marble Strata)";
+    } else if (strataH >= 7000.0f) {
+        info.formation = GeologicalFormation::NorthColFormation;
+        info.formationName = "North Col Formation (Pelitic Schists & Phyllites)";
+    } else {
+        info.formation = GeologicalFormation::GreaterHimalayanCrystalline;
+        info.formationName = "Greater Himalayan Crystalline (Granite/Gneiss Basement)";
+    }
+
+    // 2. Directional couloir fluting wave
+    glm::vec2 slopeFallLine = glm::normalize(glm::vec2(normal.x, normal.z) + glm::vec2(0.0001f));
+    glm::vec2 perpAcrossSlope(-slopeFallLine.y, slopeFallLine.x);
+    float fluteCoord = worldX * perpAcrossSlope.x + worldZ * perpAcrossSlope.y;
+    float flute = std::sin(fluteCoord * 0.25f) * 0.55f + 
+                  std::sin(fluteCoord * 0.78f) * 0.30f + 
+                  std::sin(fluteCoord * 2.20f) * 0.15f;
+    info.couloirFlute = flute;
+
+    // 3. Alpine Surface classification
+    if (slope > 42.0f) {
+        if (flute < -0.15f) {
+            info.surfaceType = AlpineSurfaceType::HardFirnSnow;
+            info.surfaceTypeName = "Couloir Firn Snow Chute";
+        } else {
+            info.surfaceType = AlpineSurfaceType::ExposedRockFace;
+            info.surfaceTypeName = "Exposed Rock Face (Granite/Limestone Cliff)";
+        }
+    } else if (slope >= 24.0f && slope <= 40.0f) {
+        info.surfaceType = AlpineSurfaceType::TalusScreeSlope;
+        info.surfaceTypeName = "Unstable Talus Scree Fan (Loose Gravel Repose)";
+    } else if (height >= 4800.0f && height <= 5450.0f && slope < 22.0f) {
+        info.surfaceType = AlpineSurfaceType::GlacialBlueIce;
+        info.surfaceTypeName = "Glacial Blue Ice (Khumbu Glacier Icefall)";
+    } else {
+        info.surfaceType = AlpineSurfaceType::HardFirnSnow;
+        info.surfaceTypeName = "Alpine Firn Snowfield";
+    }
+
+    // 4. Altitude-based climate and jet stream meteorology
+    // Standard lapse rate: 6.5°C per 1000m from +15°C at sea level
+    float baseTemp = 15.0f - (height / 1000.0f) * 6.5f;
+    info.ambientTempCelsius = baseTemp;
+
+    // Jet stream wind speed: scales from ~20 km/h at base valleys to 140+ km/h on Everest summit ridge
+    float altRatio = std::clamp((height - 4000.0f) / 4848.0f, 0.0f, 1.0f);
+    float windSpeed = 18.0f + 125.0f * (altRatio * altRatio);
+    info.jetStreamSpeedKmh = windSpeed;
+
+    // Windchill calculation (Osczevski & Bluestein index)
+    float vP = std::pow(std::max(windSpeed, 5.0f), 0.16f);
+    float chill = 13.12f + 0.6215f * baseTemp - 11.37f * vP + 0.3965f * baseTemp * vP;
+    info.windChillCelsius = chill;
+
+    return info;
+}
+
 } // namespace whiteout::game
