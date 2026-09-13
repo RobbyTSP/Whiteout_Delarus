@@ -13,7 +13,7 @@ struct WindowEventState {
     int newWidth = 0;
     int newHeight = 0;
 
-    // Movement keys
+    // Movement & Action keys
     bool moveForward = false;
     bool moveBackward = false;
     bool moveLeft = false;
@@ -21,9 +21,14 @@ struct WindowEventState {
     bool moveUp = false;
     bool moveDown = false;
     bool sprint = false;
+    bool jump = false;
+    bool crouch = false;
+    bool toggleMode = false;
+    int teleportPreset = 0; // 1 = Base Camp, 2 = Summit, 3 = Lhotse, 4 = Ama Dablam
 
     // Mouse state
     bool rightMouseDown = false;
+    bool leftMouseDown = false;
     float mouseDeltaX = 0.0f;
     float mouseDeltaY = 0.0f;
 };
@@ -41,6 +46,9 @@ public:
     [[nodiscard]] int getHeight() const { return m_height; }
     [[nodiscard]] float getAspectRatio() const { return static_cast<float>(m_width) / static_cast<float>(m_height); }
 
+    void setMouseCapture(bool capture);
+    [[nodiscard]] bool isMouseCaptured() const { return m_mouseCaptured; }
+
     [[nodiscard]] std::vector<const char*> getRequiredInstanceExtensions() const;
     bool createVulkanSurface(VkInstance instance, VkSurfaceKHR* surface) const;
 
@@ -51,6 +59,7 @@ private:
     SDL_Window* m_window = nullptr;
     int m_width = 1280;
     int m_height = 720;
+    bool m_mouseCaptured = false;
     WindowEventState m_lastEvents;
 };
 

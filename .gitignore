@@ -27,3 +27,8 @@ data/raw/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Screenshots & Local Test Captures
+/*_fp.png
+/*_render.png
+/everest_*.png

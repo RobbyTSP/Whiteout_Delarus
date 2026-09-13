@@ -103,30 +103,56 @@ Die Rendering-Engine wurde in modernem **C++20** und **Vulkan 1.3+ / 1.4** mit d
 * **6-DOF Alpine Freiflugkamera:** Flüssiges Überfliegen des ~35 km Massivs mit 150 km Sichtweite und Turbomodus.
 * **Procedurales Biome-Splatting im Shader:** Automatische Verblendung von Granitfels an Steilwänden (>45° Neigung), Firnschnee in Höhenlagen, Moränengeröll und atmosphärischem Rayleigh-Höhendunst.
 
+## 🧗‍♂️ Schritt 3: First-Person Bergsteiger-Modus & 1:1 Bodenphysik (Abgeschlossen)
+
+In Schritt 3 wurde Whiteout Delarus zu einem echten **First-Person Spiel** ausgebaut:
+
+* **1:1 Terrain Collider ([`src/game/TerrainCollider.hpp`](src/game/TerrainCollider.hpp)):**
+  * Kontinuierliche bilineare Höheninterpolation auf dem 1024×1024 Float32 DEM.
+  * Exakte Höhenabfrage $h(x, z)$ auf den Zentimeter genau überall auf dem 34,6 km Massiv.
+  * Mathematische Oberflächennormalen- und Neigungswinkelberechnung ($\text{Slope} = \arccos(N_y)$).
+* **First-Person Charakter-Controller ([`src/game/Player.hpp`](src/game/Player.hpp)):**
+  * **Physik & Gravitation:** Realistische Erdanziehung ($-19,62\,\text{m/s}^2$), Bodenkollision, Ground-Snapping über Moränenkämme und Sprungmechanik (`Leertaste`).
+  * **Alpine Hangsteigungs-Mechanik:** Steigungen > 20° verringern realistisch die Gehgeschwindigkeit. Extrem steile Steilhänge (> 55°) können nicht einfach hochgerannt werden (Bergsteiger-Physik).
+  * **Head-Bobbing & Schrittdynamik:** Organische Gangart-Oszillation proportional zur Schrittgeschwindigkeit.
+  * **Huckepack & Ducken (`C` / `Strg`):** Sanfte Reduzierung der Augenhöhe von 1,75 m auf 0,95 m.
+* **Echtzeit-Telemetrie & Sauerstoff-Kalkulation (HUD):**
+  * Höhenmesser in Metern.
+  * Hangneigung in Grad.
+  * Geschwindigkeit in km/h.
+  * Barometrische Sauerstoffsättigung ($O_2$): z. B. ~52% im Base Camp, ~31% am Gipfel inklusive **"DEATH ZONE > 8000m"**-Warnung!
+* **Modus-Umschaltung (`Tab` / `V`):**
+  * Jederzeitiger nahtloser Wechsel zwischen **First-Person zu Fuß** und **6-DOF Drohnen-Freiflug**.
+* **Schnellreise-Presets zu den Landmarken (`Tasten 1–4`):**
+  * **1:** Everest Base Camp (Südseite, Khumbu-Gletscher auf 5.303 m)
+  * **2:** Mount Everest Gipfelgrat & Hillary Step (8.729 m)
+  * **3:** Lhotse Face & South Col (8.410 m)
+  * **4:** Ama Dablam Tal (4.653 m)
+
 ### 🎮 Steuerung
 
-| Taste / Eingabe | Aktion |
-| :--- | :--- |
-| **Rechte Maustaste + Bewegen** | Umsehen (Pitch / Yaw) |
-| **W / A / S / D** | Vorwärts / Links / Rückwärts / Rechts fliegen |
-| **Q / E** (oder **Strg / Leertaste**) | Sinken / Steigen |
-| **Shift (Umschalttaste)** | Turbo-Flug (Sprint über Gebirgsketten) |
-| **ESC** | Beenden |
+| Taste / Eingabe | First-Person Bergsteiger | Drohnen-Freiflug (`Tab`/`V`) |
+| :--- | :--- | :--- |
+| **Maus bewegen** | Freies Umsehen (Mauszeiger gelockt) | Umsehen (Pitch / Yaw) |
+| **W / A / S / D** | Gehen / Laufen über den Boden | Vorwärts / Links / Zurück / Rechts fliegen |
+| **Shift (Umschalttaste)** | Alpin-Sprint | Turbo-Flug (bis zu 2.000 m/s) |
+| **Leertaste** | Springen (über Felsspalten / Blöcke) | Steigen |
+| **C / Strg** | Ducken / Kriechen | Sinken |
+| **Tab / V** | **Modus wechseln (First-Person $\leftrightarrow$ Freiflug)** | Modus wechseln |
+| **1 / 2 / 3 / 4** | **Schnellreise: Base Camp / Gipfel / Lhotse / Ama Dablam** | Schnellreise |
+| **ESC** | Mauszeiger freigeben / Beenden | Beenden |
 
-### 🛠️ Engine kompilieren & starten
+### 🛠️ Kompilieren & Ausführen
 
 ```bash
-# 1. CMake konfigurieren (Ninja Build-System)
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-
-# 2. Slang-Shader & C++ Engine kompilieren
+# 1. Kompilieren
 cmake --build build
 
-# 3. Engine starten
+# 2. Spiel im First-Person Modus starten
 ./build/whiteout
 
-# Optional: Screenshot-Modus zur visuellen Verifikation
-./build/whiteout --screenshot everest_render.png
+# 3. Screenshot im First-Person Modus aufnehmen
+./build/whiteout --screenshot everest_fp.png
 ```
 
 ---
@@ -135,6 +161,7 @@ cmake --build build
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
 * [x] **Schritt 2:** C++20 / Vulkan Initialisierung, Dynamic Rendering, Device-Local Buffers & Slang Shader Pipeline.
-* [ ] **Schritt 3:** Textur-Streaming & Bindless Descriptor Sets für die ambientCG PBR-Materialien (Fels, Schnee, Eis, Moräne) und das 1024x1024 ESRI-Satelliten-Overlay.
-* [ ] **Schritt 4:** CDLOD / Terrain Clipmaps oder Mesh Shader für kontinuierliches LOD-Streaming über den gesamten Himalaya-Gebirgsbogen.
-* [ ] **Schritt 5:** Dynamischer Tag-Nacht-Zyklus, volumetrische Wolken & Integration der Open-Meteo Echtzeit-Wetterdaten.
+* [x] **Schritt 3:** First-Person Bergsteiger-Spiel mit 1:1 Terrain-Kollision, Laufen, Springen, Hangphysik & Schnellreise.
+* [ ] **Schritt 4:** Textur-Streaming & Bindless Descriptor Sets für die ambientCG PBR-Materialien (Fels, Schnee, Eis, Moräne) und das 1024x1024 ESRI-Satelliten-Overlay.
+* [ ] **Schritt 5:** CDLOD / Terrain Clipmaps oder Mesh Shader für kontinuierliches LOD-Streaming über den gesamten Himalaya-Gebirgsbogen.
+* [ ] **Schritt 6:** Dynamischer Tag-Nacht-Zyklus, volumetrische Wolken & Integration der Open-Meteo Echtzeit-Wetterdaten.

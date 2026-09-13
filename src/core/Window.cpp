@@ -55,10 +55,17 @@ bool Window::createVulkanSurface(VkInstance instance, VkSurfaceKHR* surface) con
     return true;
 }
 
+void Window::setMouseCapture(bool capture) {
+    m_mouseCaptured = capture;
+    SDL_SetRelativeMouseMode(capture ? SDL_TRUE : SDL_FALSE);
+}
+
 WindowEventState Window::pollEvents() {
     SDL_Event event;
     m_lastEvents.mouseDeltaX = 0.0f;
     m_lastEvents.mouseDeltaY = 0.0f;
+    m_lastEvents.toggleMode = false;
+    m_lastEvents.teleportPreset = 0;
 
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
@@ -82,7 +89,13 @@ WindowEventState Window::pollEvents() {
                 bool isDown = (event.type == SDL_KEYDOWN);
                 switch (event.key.keysym.sym) {
                     case SDLK_ESCAPE:
-                        if (isDown) m_lastEvents.shouldClose = true;
+                        if (isDown) {
+                            if (m_mouseCaptured) {
+                                setMouseCapture(false);
+                            } else {
+                                m_lastEvents.shouldClose = true;
+                            }
+                        }
                         break;
                     case SDLK_w: m_lastEvents.moveForward = isDown; break;
                     case SDLK_s: m_lastEvents.moveBackward = isDown; break;
@@ -90,30 +103,49 @@ WindowEventState Window::pollEvents() {
                     case SDLK_d: m_lastEvents.moveRight = isDown; break;
                     case SDLK_q: m_lastEvents.moveDown = isDown; break;
                     case SDLK_e: m_lastEvents.moveUp = isDown; break;
-                    case SDLK_SPACE: m_lastEvents.moveUp = isDown; break;
-                    case SDLK_LCTRL: m_lastEvents.moveDown = isDown; break;
+                    case SDLK_SPACE:
+                        m_lastEvents.moveUp = isDown;
+                        m_lastEvents.jump = isDown;
+                        break;
+                    case SDLK_c: m_lastEvents.crouch = isDown; break;
+                    case SDLK_LCTRL:
+                        m_lastEvents.moveDown = isDown;
+                        m_lastEvents.crouch = isDown;
+                        break;
                     case SDLK_LSHIFT: m_lastEvents.sprint = isDown; break;
+                    case SDLK_v:
+                    case SDLK_TAB:
+                        if (isDown) m_lastEvents.toggleMode = true;
+                        break;
+                    case SDLK_1: if (isDown) m_lastEvents.teleportPreset = 1; break;
+                    case SDLK_2: if (isDown) m_lastEvents.teleportPreset = 2; break;
+                    case SDLK_3: if (isDown) m_lastEvents.teleportPreset = 3; break;
+                    case SDLK_4: if (isDown) m_lastEvents.teleportPreset = 4; break;
                     default: break;
                 }
                 break;
             }
 
             case SDL_MOUSEBUTTONDOWN:
-                if (event.button.button == SDL_BUTTON_RIGHT || event.button.button == SDL_BUTTON_LEFT) {
+                if (event.button.button == SDL_BUTTON_RIGHT) {
                     m_lastEvents.rightMouseDown = true;
-                    SDL_SetRelativeMouseMode(SDL_TRUE);
+                    setMouseCapture(true);
+                } else if (event.button.button == SDL_BUTTON_LEFT) {
+                    m_lastEvents.leftMouseDown = true;
+                    setMouseCapture(true);
                 }
                 break;
 
             case SDL_MOUSEBUTTONUP:
-                if (event.button.button == SDL_BUTTON_RIGHT || event.button.button == SDL_BUTTON_LEFT) {
+                if (event.button.button == SDL_BUTTON_RIGHT) {
                     m_lastEvents.rightMouseDown = false;
-                    SDL_SetRelativeMouseMode(SDL_FALSE);
+                } else if (event.button.button == SDL_BUTTON_LEFT) {
+                    m_lastEvents.leftMouseDown = false;
                 }
                 break;
 
             case SDL_MOUSEMOTION:
-                if (m_lastEvents.rightMouseDown) {
+                if (m_mouseCaptured || m_lastEvents.rightMouseDown) {
                     m_lastEvents.mouseDeltaX += static_cast<float>(event.motion.xrel);
                     m_lastEvents.mouseDeltaY += static_cast<float>(event.motion.yrel);
                 }

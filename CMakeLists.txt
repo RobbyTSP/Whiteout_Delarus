@@ -75,6 +75,8 @@ set(SOURCES
     src/rhi/VulkanPipeline.cpp
     src/rhi/VulkanBuffer.cpp
     src/renderer/Renderer.cpp
+    src/game/TerrainCollider.cpp
+    src/game/Player.cpp
 )
 
 set(HEADERS
@@ -87,6 +89,8 @@ set(HEADERS
     src/rhi/VulkanPipeline.hpp
     src/rhi/VulkanBuffer.hpp
     src/renderer/Renderer.hpp
+    src/game/TerrainCollider.hpp
+    src/game/Player.hpp
 )
 
 add_executable(whiteout ${SOURCES} ${HEADERS})

@@ -2,6 +2,8 @@
 #include "core/Camera.hpp"
 #include "core/Timer.hpp"
 #include "renderer/Renderer.hpp"
+#include "game/TerrainCollider.hpp"
+#include "game/Player.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -11,46 +13,61 @@ int main(int argc, char* argv[]) {
     (void)argv;
 
     std::cout << "=========================================================\n";
-    std::cout << " WHITEOUT DELARUS: 1:1 SCALE HIMALAYA ENGINE (STEP 2)\n";
+    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA FIRST-PERSON GAME (STEP 3)\n";
     std::cout << " Rendering API: Vulkan 1.3+ / 1.4 (Dynamic Rendering)\n";
     std::cout << " Shading Language: Slang (SPIR-V)\n";
-    std::cout << " Target: Mount Everest Massif & Sagarmatha\n";
+    std::cout << " Physics: 1:1 Bilinear Terrain Collision & Ground Physics\n";
     std::cout << " Controls:\n";
-    std::cout << "   - Right Mouse + Drag: Look around\n";
-    std::cout << "   - W / A / S / D: Fly forward / left / back / right\n";
-    std::cout << "   - Q / E (or Ctrl / Space): Descend / Ascend\n";
-    std::cout << "   - Left Shift: Turbo flight sprint\n";
-    std::cout << "   - ESC: Exit\n";
+    std::cout << "   - Mouse Move: Look around (Click window to capture mouse)\n";
+    std::cout << "   - W / A / S / D: Walk forward / left / back / right\n";
+    std::cout << "   - Left Shift: Sprint\n";
+    std::cout << "   - Space: Jump / Hopping over rocks & crevasses\n";
+    std::cout << "   - C / Ctrl: Crouch / Lower profile\n";
+    std::cout << "   - Tab / V: Switch between First-Person Walk <-> Drone Flight\n";
+    std::cout << "   - 1: Fast Travel -> Everest Base Camp South (5,303m)\n";
+    std::cout << "   - 2: Fast Travel -> Mount Everest Summit Ridge (8,729m)\n";
+    std::cout << "   - 3: Fast Travel -> Lhotse Face / South Col (8,410m)\n";
+    std::cout << "   - 4: Fast Travel -> Ama Dablam Valley (4,653m)\n";
+    std::cout << "   - ESC: Release mouse capture / Exit\n";
     std::cout << "=========================================================\n" << std::endl;
 
     try {
         const int initialWidth = 1600;
         const int initialHeight = 900;
         whiteout::core::Window window(
-            "Whiteout Delarus - 1:1 Mount Everest (C++ / Vulkan / Slang)",
+            "Whiteout Delarus - 1:1 Mount Everest (First-Person)",
             initialWidth,
             initialHeight
         );
 
-        // Position camera high above the South ridge overlooking Mount Everest (elevation ~9,200m)
-        whiteout::core::Camera camera(glm::vec3(0.0f, 9200.0f, 22000.0f), 65.0f);
+        // Capture mouse on start for true FPS feel
+        window.setMouseCapture(true);
+
+        whiteout::core::Camera camera(glm::vec3(-15645.0f, 5306.0f, -9751.0f), 70.0f);
         camera.setAspectRatio(window.getAspectRatio());
-        camera.setLookAt(glm::vec3(0.0f, 6500.0f, 0.0f));
 
         whiteout::renderer::Renderer renderer(window);
+
+        // Load 1:1 DEM Terrain Collider for player physics & ground collision
+        whiteout::game::TerrainCollider collider(34610.0f, 34520.0f);
+        collider.loadDem(DATA_DIR "/processed/everest_dem_float32.bin", 1024, 1024);
+
+        // First-person player character controller
+        whiteout::game::Player player(camera, collider);
+
         whiteout::core::Timer timer;
 
         // Check for --screenshot CLI argument
         std::string screenshotPath = "";
         for (int i = 1; i < argc; i++) {
             if (std::string(argv[i]) == "--screenshot") {
-                screenshotPath = (i + 1 < argc) ? argv[i + 1] : "everest_vulkan_slang.png";
+                screenshotPath = (i + 1 < argc) ? argv[i + 1] : "everest_first_person.png";
                 break;
             }
         }
 
         if (!screenshotPath.empty()) {
-            std::cout << "[Engine] Screenshot mode active: Rendering frame to " << screenshotPath << std::endl;
+            std::cout << "[Engine] Screenshot mode active: Rendering first-person frame to " << screenshotPath << std::endl;
             for (int f = 0; f < 5; f++) {
                 timer.tick();
                 renderer.renderFrame(camera, timer.totalTime());
@@ -76,20 +93,20 @@ int main(int argc, char* argv[]) {
                 window.resetResizeFlag();
             }
 
-            camera.update(timer.deltaTime(), input);
+            // Update player physics, collision, ground snapping, and camera
+            player.update(timer.deltaTime(), input);
+
+            // Render frame using Vulkan 1.3+ Dynamic Rendering & Slang shader
             renderer.renderFrame(camera, timer.totalTime());
 
-            // Update title with FPS, Altitude, and Coordinates every 0.25s
+            // Realtime HUD & Telemetry in window title
             titleUpdateTimer += timer.deltaTime();
-            if (titleUpdateTimer >= 0.25f) {
+            if (titleUpdateTimer >= 0.15f) {
                 titleUpdateTimer = 0.0f;
-                glm::vec3 pos = camera.getPosition();
                 std::stringstream title;
-                title << "Whiteout Delarus [Vulkan/Slang] | "
-                      << std::fixed << std::setprecision(1) << timer.currentFps() << " FPS | "
-                      << "Altitude: " << static_cast<int>(pos.y) << " m | "
-                      << "Pos: (" << static_cast<int>(pos.x) << ", " << static_cast<int>(pos.z) << ") | GPU: "
-                      << renderer.getContext().getGpuName();
+                title << "Whiteout Delarus | "
+                      << std::fixed << std::setprecision(0) << timer.currentFps() << " FPS | "
+                      << player.getTelemetryString();
 
                 SDL_SetWindowTitle(window.getNativeHandle(), title.str().c_str());
             }
