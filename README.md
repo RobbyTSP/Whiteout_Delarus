@@ -371,6 +371,30 @@ In Schritt 9 (1:1 Part V) widmen wir uns der authentischen Wiedererkennbarkeit u
 
 ---
 
+## 🏔️ Schritt 9.1: GPU-Tessellation / Virtual Heightfield, Normal-Baking & Geologisches Höhen-Banding (Geplant)
+
+Zur perfekten Beseitigung jeglicher verbleibender Polygonknicke und zur fotorealistischen Verankerung der realen Himalaya-Geologie:
+
+### 1. GPU-Tessellation / Virtual Heightfield (Detail-Displacement)
+* **Ziel:** Aufbrechen der 33,8-Meter-Rasterkanten der Höhendaten in mikro-zerklüftete Felsstrukturen.
+* **Methode:**
+  * Dynamische Tessellation im Terrain-Shader oder adaptives Displacement auf Vertex-Ebene gesteuert durch hochfrequente Noise- und Gesteins-Detailmaps.
+  * Verhindert flache Dreiecksübergänge und "geknickte" Kanten an Bergkämmen vollständig; Felsgrate und Steilflanken erhalten eine organische, fließende und hochdetaillierte Silhouette wie im realen Gebirge.
+
+### 2. Normal-Map aus Höhendaten backen (Sobel-Filter)
+* **Ziel:** Maximale plastische Tiefenwirkung in Felsrinnen und Steilwänden ohne zusätzliche Geometrielast.
+* **Methode:**
+  * Berechnung einer hochpräzisen World-Space- / Tangent-Space-Normal-Map direkt aus den finalen Höhendaten mittels Sobel-Operator.
+  * Tiefe Erosionsrinnen, Wandabbrüche und Klüfte werfen physikalisch akkurate Mikroschatten, die dem Bergmassiv auch aus großer Entfernung monumentale Tiefe und Schärfe verleihen.
+
+### 3. Exaktes Geologisches Höhen-Banding im Fragment-Shader
+* **Absolute Höhensteuerung pro Vertex / Fragment:**
+  * **> 8.600 m (Qomolangma-Formation):** Dunkelgrauer bis fast schwarzer mikritischer Kalkstein der Gipfelpyramide. Nahezu schneefrei, da orkanartige Jetstream-Winde den Schnee unmittelbar in die Tiefe reißen.
+  * **8.200 m – 8.600 m (The Yellow Band):** Das weltberühmte, weithin sichtbare "Gelbe Band" aus hellem, ocker-gelblichem dolomitischem Marmor und Kalksedimenten.
+  * **< 8.200 m (North Col Formation & Tibetische Zone):** Dunkler Gneis, phyllitischer Schiefer und Granit des Sockels, physikalisch abgemischt mit Steilwand-Fels-Shadern und Schuttkegeln.
+
+---
+
 ## 🔭 Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
@@ -382,6 +406,8 @@ In Schritt 9 (1:1 Part V) widmen wir uns der authentischen Wiedererkennbarkeit u
 * [x] **Schritt 7 (1:1 Part III):** Alpines Grat-Sculpting (Multi-Scale Discrete Curvature), hydraulische Couloirs, thermische Schuttkegel, Dual-Frequency Anti-Tiling, Horizon AO & ACES Tone Mapping.
 * [x] **Schritt 8 (1:1 Part IV):** Fotorealismus-Feinschliff: Beseitigung von Wabenmuster/Kachelung durch Multi-Scale Distance Tiling & Domain Warping, authentische Himalaya-Petrologie, Multi-Bounce Schneelicht & weiche Schatten.
 * [ ] **Schritt 9 (1:1 Part V):** Geomorphologischer 1:1 Echtwelt-Abgleich: Entschärfung des über-spitzen Nadel-Looks zu massiven Monumental-Sockeln & akkurate Schnee/Fels-Balance (Hängegletscher, Firnkare, Felsband-Schneeterrassen).
+* [ ] **Schritt 9.1:** GPU-Tessellation / Virtual Heightfield (Auflösung der 33,8 m Kanten via Detail-Displacement), Sobel-Normal-Baking & Geologisches Höhen-Banding (>8.600m Qomolangma, 8.200m–8.600m Yellow Band, <8.200m Gneis/Granit).
+
 
 
 
