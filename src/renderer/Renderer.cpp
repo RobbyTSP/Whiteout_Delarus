@@ -5,6 +5,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <glm/gtc/matrix_transform.hpp>
+#include "../rhi/VulkanTexture.hpp"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
 
@@ -28,6 +29,7 @@ Renderer::Renderer(core::Window& window)
 
     createCommandBuffers();
     initSyncObjects();
+    initTexturesAndDescriptors();
 
     // Try loading Everest DEM data from Step 1; fallback to high-altitude procedural fractal terrain
     std::string demPath = DATA_DIR "/processed/everest_dem_float32.bin";
@@ -45,6 +47,10 @@ Renderer::Renderer(core::Window& window)
 Renderer::~Renderer() {
     VkDevice device = m_context->getDevice();
     vkDeviceWaitIdle(device);
+
+    if (m_descriptorPool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
+    }
 
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroySemaphore(device, m_imageAvailableSemaphores[i], nullptr);
@@ -88,6 +94,103 @@ void Renderer::createCommandBuffers() {
     if (vkAllocateCommandBuffers(m_context->getDevice(), &allocInfo, m_commandBuffers.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate command buffers!");
     }
+}
+
+void Renderer::initTexturesAndDescriptors() {
+    VkDevice device = m_context->getDevice();
+
+    // 1. Create Descriptor Pool for 18 combined image samplers
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = 18;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = 1;
+
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create descriptor pool for textures!");
+    }
+
+    // 2. Allocate Descriptor Set
+    VkDescriptorSetLayout layout = m_pipeline->getDescriptorSetLayout();
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = m_descriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &layout;
+
+    if (vkAllocateDescriptorSets(device, &allocInfo, &m_descriptorSet) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate terrain texture descriptor set!");
+    }
+
+    // 3. Load all 18 texture maps (ESRI satellite, Macro Normal, and ambientCG CC0 PBR sets)
+    struct TexDef {
+        std::string path;
+        bool isSrgb;
+        bool clamp;
+    };
+
+    std::vector<TexDef> texDefs = {
+        // 0..1: Macro textures
+        {DATA_DIR "/processed/everest_satellite_albedo.jpg", true, true},
+        {DATA_DIR "/processed/everest_normal_map.png", false, true},
+
+        // 2..5: Rock PBR
+        {DATA_DIR "/textures/rock/albedo.jpg", true, false},
+        {DATA_DIR "/textures/rock/normal.jpg", false, false},
+        {DATA_DIR "/textures/rock/roughness.jpg", false, false},
+        {DATA_DIR "/textures/rock/displacement.jpg", false, false},
+
+        // 6..9: Snow PBR
+        {DATA_DIR "/textures/snow/albedo.jpg", true, false},
+        {DATA_DIR "/textures/snow/normal.jpg", false, false},
+        {DATA_DIR "/textures/snow/roughness.jpg", false, false},
+        {DATA_DIR "/textures/snow/displacement.jpg", false, false},
+
+        // 10..13: Scree PBR
+        {DATA_DIR "/textures/scree/albedo.jpg", true, false},
+        {DATA_DIR "/textures/scree/normal.jpg", false, false},
+        {DATA_DIR "/textures/scree/roughness.jpg", false, false},
+        {DATA_DIR "/textures/scree/displacement.jpg", false, false},
+
+        // 14..17: Glacier PBR
+        {DATA_DIR "/textures/glacier/albedo.jpg", true, false},
+        {DATA_DIR "/textures/glacier/normal.jpg", false, false},
+        {DATA_DIR "/textures/glacier/roughness.jpg", false, false},
+        {DATA_DIR "/textures/glacier/displacement.jpg", false, false}
+    };
+
+    m_textures.reserve(texDefs.size());
+    std::vector<VkDescriptorImageInfo> imageInfos(texDefs.size());
+    std::vector<VkWriteDescriptorSet> writes(texDefs.size());
+
+    std::cout << "[Renderer] Loading 18 PBR & Satellite textures into GPU VRAM..." << std::endl;
+    for (size_t i = 0; i < texDefs.size(); i++) {
+        m_textures.push_back(std::make_unique<rhi::VulkanTexture>(
+            *m_context,
+            texDefs[i].path,
+            texDefs[i].isSrgb,
+            texDefs[i].clamp
+        ));
+        imageInfos[i] = m_textures.back()->getDescriptorInfo();
+
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[i].pNext = nullptr;
+        writes[i].dstSet = m_descriptorSet;
+        writes[i].dstBinding = static_cast<uint32_t>(i);
+        writes[i].dstArrayElement = 0;
+        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[i].descriptorCount = 1;
+        writes[i].pImageInfo = &imageInfos[i];
+        writes[i].pBufferInfo = nullptr;
+        writes[i].pTexelBufferView = nullptr;
+    }
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    std::cout << "[Renderer] Successfully bound all 18 PBR & Satellite textures to Descriptor Set." << std::endl;
 }
 
 void Renderer::onResize() {
@@ -397,6 +500,10 @@ void Renderer::renderFrame(const core::Camera& camera, float totalTime) {
 
     // Draw Terrain Mesh
     if (m_vertexBuffer && m_indexBuffer && m_indexCount > 0) {
+        if (m_descriptorSet != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->getLayout(), 0, 1, &m_descriptorSet, 0, nullptr);
+        }
+
         VkBuffer vertexBuffers[] = {m_vertexBuffer->getHandle()};
         VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);

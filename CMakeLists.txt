@@ -74,6 +74,7 @@ set(SOURCES
     src/rhi/VulkanShader.cpp
     src/rhi/VulkanPipeline.cpp
     src/rhi/VulkanBuffer.cpp
+    src/rhi/VulkanTexture.cpp
     src/renderer/Renderer.cpp
     src/game/TerrainCollider.cpp
     src/game/Player.cpp
@@ -88,6 +89,7 @@ set(HEADERS
     src/rhi/VulkanShader.hpp
     src/rhi/VulkanPipeline.hpp
     src/rhi/VulkanBuffer.hpp
+    src/rhi/VulkanTexture.hpp
     src/renderer/Renderer.hpp
     src/game/TerrainCollider.hpp
     src/game/Player.hpp

@@ -47,9 +47,11 @@ public:
 
     [[nodiscard]] VkPipeline getHandle() const { return m_pipeline; }
     [[nodiscard]] VkPipelineLayout getLayout() const { return m_layout; }
+    [[nodiscard]] VkDescriptorSetLayout getDescriptorSetLayout() const { return m_descriptorSetLayout; }
 
 private:
     const VulkanContext& m_context;
+    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout m_layout = VK_NULL_HANDLE;
     VkPipeline m_pipeline = VK_NULL_HANDLE;
 };

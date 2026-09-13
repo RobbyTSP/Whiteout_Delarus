@@ -142,17 +142,41 @@ In Schritt 3 wurde Whiteout Delarus zu einem echten **First-Person Spiel** ausge
 | **1 / 2 / 3 / 4** | **Schnellreise: Base Camp / Gipfel / Lhotse / Ama Dablam** | Schnellreise |
 | **ESC** | Mauszeiger freigeben / Beenden | Beenden |
 
+## 🏔️ Schritt 4: PBR-Materialien, POM & ESRI-Satelliten-Overlay (Abgeschlossen)
+
+In Schritt 4 wurde die visuelle Qualität mit echten **PBR-Materialien, Parallax Occlusion Mapping (POM) und Makro-Satellitenüberlagerung** auf AAA-Niveau gehoben:
+
+* **18 GPU-Textur-Maps im VRAM:**
+  * **Makro:** 1024×1024 ESRI World Imagery Satelliten-Orthofoto + Makro-Terrain Normal Map.
+  * **Mikro:** ambientCG CC0 PBR Materialsets (jeweils Albedo, Normal, Roughness, Displacement):
+    * *Granit-Fels:* `Rock028` (dunkle Himalaya-Granitwände)
+    * *Firnschnee:* `Snow006` (Gipfelschneefelder & Firn)
+    * *Moräne/Geröll:* `Ground037` (Khumbu-Schotter & Gesteinsschutt)
+    * *Gletschereis:* `Ice002` (bläuliches Gletschereis & Eisfall)
+* **Vulkan Texture Engine ([`src/rhi/VulkanTexture.hpp`](src/rhi/VulkanTexture.hpp) / [`.cpp`](src/rhi/VulkanTexture.cpp)):**
+  * Automatische **Hardware-Mipmap-Generierung** über `vkCmdBlitImage` zur Vermeidung von Texturflimmern in der Ferne.
+  * **16-fache Anisotrope Filterung (AF 16x)** für gestochen scharfe Bodentexturen bei flachen Betrachtungswinkeln.
+  * Automatische Unterscheidung zwischen sRGB (für Albedo) und linearem UNORM (für Normalen, Rauheit und Höhenkarten).
+* **Slang Multi-Layer PBR & POM Shader ([`shaders/terrain.slang`](shaders/terrain.slang)):**
+  * **Parallax Occlusion Mapping (POM):** Bis zu 20 Raymarching-Schritte entlang des Blickvektors erzeugen echte 3D-Risse und Tiefe im Moränengeröll und Fels unter den Füßen des Spielers.
+  * **Physikalisch basierte Hang- & Höhen-Verblendung:**
+    * Wände mit $> 40^\circ$ Neigung werfen Schnee ab und legen nackten Granit frei.
+    * Hochebenen und sanfte Hänge über 5.300 m werden mit Firnschnee bedeckt.
+    * Gletscherzungen (z. B. Khumbu-Eisfall) nutzen bläuliches Gletschereis.
+  * **Multi-Skalen Detailkachelung:** Das Makro-Satellitenbild deckt die vollen 34,6 km ab, während hochauflösende PBR-Mikrotexturen alle ~30 m kacheln und mit einer zweiten Schicht bei 4.500x Granulat-Körnung selbst millimetergroße Steine detaillieren.
+  * **Cook-Torrance/GGX Specular & Fresnel:** Kristalliner Glanz auf Firnschnee und Gletschereis bei flachen Einfallswinkeln.
+
 ### 🛠️ Kompilieren & Ausführen
 
 ```bash
 # 1. Kompilieren
 cmake --build build
 
-# 2. Spiel im First-Person Modus starten
+# 2. Spiel mit PBR & Satellitentexturen starten
 ./build/whiteout
 
-# 3. Screenshot im First-Person Modus aufnehmen
-./build/whiteout --screenshot everest_fp.png
+# 3. Screenshot aufnehmen
+./build/whiteout --screenshot everest_pbr.png
 ```
 
 ---
@@ -162,6 +186,6 @@ cmake --build build
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
 * [x] **Schritt 2:** C++20 / Vulkan Initialisierung, Dynamic Rendering, Device-Local Buffers & Slang Shader Pipeline.
 * [x] **Schritt 3:** First-Person Bergsteiger-Spiel mit 1:1 Terrain-Kollision, Laufen, Springen, Hangphysik & Schnellreise.
-* [ ] **Schritt 4:** Textur-Streaming & Bindless Descriptor Sets für die ambientCG PBR-Materialien (Fels, Schnee, Eis, Moräne) und das 1024x1024 ESRI-Satelliten-Overlay.
+* [x] **Schritt 4:** 18-Kanal PBR-Pipeline, POM (Parallax Occlusion Mapping), ESRI-Satelliten-Overlay & Slope Splatting.
 * [ ] **Schritt 5:** CDLOD / Terrain Clipmaps oder Mesh Shader für kontinuierliches LOD-Streaming über den gesamten Himalaya-Gebirgsbogen.
 * [ ] **Schritt 6:** Dynamischer Tag-Nacht-Zyklus, volumetrische Wolken & Integration der Open-Meteo Echtzeit-Wetterdaten.

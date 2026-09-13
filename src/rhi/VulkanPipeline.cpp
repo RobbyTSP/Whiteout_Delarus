@@ -137,7 +137,26 @@ VulkanPipeline::VulkanPipeline(
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
-    // 9. Pipeline Layout with Push Constants
+    // 9. Descriptor Set Layout for 18 Texture Samplers
+    std::vector<VkDescriptorSetLayoutBinding> samplerBindings(18);
+    for (uint32_t i = 0; i < 18; i++) {
+        samplerBindings[i].binding = i;
+        samplerBindings[i].descriptorCount = 1;
+        samplerBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        samplerBindings[i].pImmutableSamplers = nullptr;
+        samplerBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(samplerBindings.size());
+    layoutInfo.pBindings = samplerBindings.data();
+
+    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create descriptor set layout for terrain textures!");
+    }
+
+    // 10. Pipeline Layout with Push Constants & Descriptors
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pushConstantRange.offset = 0;
@@ -145,6 +164,8 @@ VulkanPipeline::VulkanPipeline(
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &m_descriptorSetLayout;
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
@@ -195,6 +216,9 @@ VulkanPipeline::~VulkanPipeline() {
     }
     if (m_layout != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(device, m_layout, nullptr);
+    }
+    if (m_descriptorSetLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_descriptorSetLayout, nullptr);
     }
 }
 

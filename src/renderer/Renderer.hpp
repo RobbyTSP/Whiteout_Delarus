@@ -6,6 +6,7 @@
 #include "../rhi/VulkanSwapchain.hpp"
 #include "../rhi/VulkanPipeline.hpp"
 #include "../rhi/VulkanBuffer.hpp"
+#include "../rhi/VulkanTexture.hpp"
 #include <memory>
 #include <vector>
 
@@ -42,6 +43,12 @@ private:
     uint32_t m_indexCount = 0;
     float m_minElevation = 3651.0f;
     float m_maxElevation = 8753.0f;
+
+    // Multi-texture PBR & Satellite resources
+    void initTexturesAndDescriptors();
+    std::vector<std::unique_ptr<rhi::VulkanTexture>> m_textures;
+    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet m_descriptorSet = VK_NULL_HANDLE;
 
     // Frames in flight synchronization
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
