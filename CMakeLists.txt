@@ -1,0 +1,116 @@
+cmake_minimum_required(VERSION 3.24)
+project(WhiteoutDelarus LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Compiler warnings and optimizations
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
+endif()
+
+# Find Vulkan
+find_package(Vulkan REQUIRED)
+
+# Find SDL2
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SDL2 REQUIRED sdl2)
+
+# GLM (header-only)
+find_path(GLM_INCLUDE_DIR glm/glm.hpp PATHS /usr/include /usr/local/include)
+if (NOT GLM_INCLUDE_DIR)
+    message(FATAL_ERROR "GLM headers not found!")
+endif()
+
+# STB Image (header-only)
+find_path(STB_INCLUDE_DIR stb/stb_image.h PATHS /usr/include /usr/local/include)
+
+# Find Slang compiler (slangc)
+find_program(SLANGC_EXECUTABLE slangc PATHS /usr/local/bin /usr/bin)
+if (NOT SLANGC_EXECUTABLE)
+    message(FATAL_ERROR "slangc compiler not found! Please ensure slangc is installed on PATH.")
+endif()
+message(STATUS "Found Slang compiler: ${SLANGC_EXECUTABLE}")
+
+# Shader compilation helper
+set(SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+set(SPV_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+file(MAKE_DIRECTORY ${SPV_OUTPUT_DIR})
+
+# Function to compile Slang shaders to SPIR-V
+function(add_slang_shader SHADER_NAME STAGE ENTRY_POINT OUTPUT_NAME)
+    set(INPUT_FILE "${SHADER_DIR}/${SHADER_NAME}")
+    set(OUTPUT_FILE "${SPV_OUTPUT_DIR}/${OUTPUT_NAME}")
+
+    add_custom_command(
+        OUTPUT ${OUTPUT_FILE}
+        COMMAND ${SLANGC_EXECUTABLE} ${INPUT_FILE}
+                -target spirv
+                -stage ${STAGE}
+                -entry ${ENTRY_POINT}
+                -profile glsl_460
+                -o ${OUTPUT_FILE}
+        DEPENDS ${INPUT_FILE}
+        COMMENT "Compiling Slang shader ${SHADER_NAME} [${STAGE} -> ${ENTRY_POINT}] to ${OUTPUT_NAME}"
+    )
+    list(APPEND SPV_TARGETS ${OUTPUT_FILE})
+    set(SPV_TARGETS ${SPV_TARGETS} PARENT_SCOPE)
+endfunction()
+
+# Register Slang shaders
+add_slang_shader("terrain.slang" "vertex" "vertexMain" "terrain_vert.spv")
+add_slang_shader("terrain.slang" "fragment" "fragmentMain" "terrain_frag.spv")
+
+add_custom_target(compile_shaders ALL DEPENDS ${SPV_TARGETS})
+
+# Application Sources
+set(SOURCES
+    src/main.cpp
+    src/core/Window.cpp
+    src/core/Camera.cpp
+    src/rhi/VulkanContext.cpp
+    src/rhi/VulkanSwapchain.cpp
+    src/rhi/VulkanShader.cpp
+    src/rhi/VulkanPipeline.cpp
+    src/rhi/VulkanBuffer.cpp
+    src/renderer/Renderer.cpp
+)
+
+set(HEADERS
+    src/core/Window.hpp
+    src/core/Camera.hpp
+    src/core/Timer.hpp
+    src/rhi/VulkanContext.hpp
+    src/rhi/VulkanSwapchain.hpp
+    src/rhi/VulkanShader.hpp
+    src/rhi/VulkanPipeline.hpp
+    src/rhi/VulkanBuffer.hpp
+    src/renderer/Renderer.hpp
+)
+
+add_executable(whiteout ${SOURCES} ${HEADERS})
+add_dependencies(whiteout compile_shaders)
+
+target_include_directories(whiteout PRIVATE
+    src
+    ${Vulkan_INCLUDE_DIRS}
+    ${SDL2_INCLUDE_DIRS}
+    ${GLM_INCLUDE_DIR}
+)
+
+if (STB_INCLUDE_DIR)
+    target_include_directories(whiteout PRIVATE ${STB_INCLUDE_DIR})
+endif()
+
+target_compile_definitions(whiteout PRIVATE
+    GLM_FORCE_RADIANS
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    SHADER_DIR="${SPV_OUTPUT_DIR}"
+    DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+)
+
+target_link_libraries(whiteout PRIVATE
+    Vulkan::Vulkan
+    ${SDL2_LIBRARIES}
+)

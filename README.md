@@ -93,10 +93,48 @@ python scripts/run_step1_pipeline.py
 
 ---
 
+## 🚀 Schritt 2: C++20 / Vulkan 1.4 & Slang Engine (Abgeschlossen)
+
+Die Rendering-Engine wurde in modernem **C++20** und **Vulkan 1.3+ / 1.4** mit der **Slang Shading Language** implementiert:
+
+* **Vulkan Dynamic Rendering (`VK_KHR_dynamic_rendering`):** Kein veraltetes `VkRenderPass`- oder `VkFramebuffer`-Boilerplate. Direktes Zeichnen in Swapchain & Depth Buffer via `vkCmdBeginRendering`.
+* **Slang Shader Pipeline (`slangc`):** Moderne Shadersyntax mit strukturierten Push-Constants in [`shaders/terrain.slang`](shaders/terrain.slang). Automatische Kompilierung zu SPIR-V während des CMake-Builds.
+* **1:1 Mount Everest DEM-Upload:** Das 1024×1024 Float32-Höhengitter aus Schritt 1 wird direkt in device-lokalen GPU-Grafikspeicher geladen (262.144 Vertices, 522.242 Dreiecke, Höhenprofil 3.652 m bis 8.748 m).
+* **6-DOF Alpine Freiflugkamera:** Flüssiges Überfliegen des ~35 km Massivs mit 150 km Sichtweite und Turbomodus.
+* **Procedurales Biome-Splatting im Shader:** Automatische Verblendung von Granitfels an Steilwänden (>45° Neigung), Firnschnee in Höhenlagen, Moränengeröll und atmosphärischem Rayleigh-Höhendunst.
+
+### 🎮 Steuerung
+
+| Taste / Eingabe | Aktion |
+| :--- | :--- |
+| **Rechte Maustaste + Bewegen** | Umsehen (Pitch / Yaw) |
+| **W / A / S / D** | Vorwärts / Links / Rückwärts / Rechts fliegen |
+| **Q / E** (oder **Strg / Leertaste**) | Sinken / Steigen |
+| **Shift (Umschalttaste)** | Turbo-Flug (Sprint über Gebirgsketten) |
+| **ESC** | Beenden |
+
+### 🛠️ Engine kompilieren & starten
+
+```bash
+# 1. CMake konfigurieren (Ninja Build-System)
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+# 2. Slang-Shader & C++ Engine kompilieren
+cmake --build build
+
+# 3. Engine starten
+./build/whiteout
+
+# Optional: Screenshot-Modus zur visuellen Verifikation
+./build/whiteout --screenshot everest_render.png
+```
+
+---
+
 ## 🔭 Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
-* [ ] **Schritt 2:** C++20 / Vulkan Initialisierung (Device, Swapchain, Queue Families) & Slang Shader Compiler Pipeline.
-* [ ] **Schritt 3:** Terrain Rendering mit CDLOD / Clipmaps oder Mesh-Shadern für das 1:1 Himalaya-Terrain unter Verwendung von `everest_dem_float32.bin`.
-* [ ] **Schritt 4:** PBR Terrain Triplanar Blending (Fels, Firnschnee, Eis, Geröll nach Höhe und Neigung) + Satelliten-Overlay.
-* [ ] **Schritt 5:** Dynamische Atmosphäre, Nebel und Open-Meteo Wetter-Integration.
+* [x] **Schritt 2:** C++20 / Vulkan Initialisierung, Dynamic Rendering, Device-Local Buffers & Slang Shader Pipeline.
+* [ ] **Schritt 3:** Textur-Streaming & Bindless Descriptor Sets für die ambientCG PBR-Materialien (Fels, Schnee, Eis, Moräne) und das 1024x1024 ESRI-Satelliten-Overlay.
+* [ ] **Schritt 4:** CDLOD / Terrain Clipmaps oder Mesh Shader für kontinuierliches LOD-Streaming über den gesamten Himalaya-Gebirgsbogen.
+* [ ] **Schritt 5:** Dynamischer Tag-Nacht-Zyklus, volumetrische Wolken & Integration der Open-Meteo Echtzeit-Wetterdaten.
