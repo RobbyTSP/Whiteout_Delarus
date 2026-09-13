@@ -299,6 +299,52 @@ In Schritt 7 (1:1 Part III) wurden die drei fundamentalen Säulen fotorealistisc
 
 ---
 
+## 🏔️ Schritt 8: Fotorealismus-Feinschliff, Wabenmuster-Eliminierung & Geologische Harmonie (1:1 Part IV - Abgeschlossen)
+
+In Schritt 8 (1:1 Part IV) wurden die verbliebenen visuellen Schwachstellen und Artefakte systematisch behoben, um fotorealistische Geschlossenheit und geologische Authentizität zu erreichen:
+
+### 1. Beseitigung der Textur-Kachelung & Wabenmuster (Multi-Scale Distance Tiling & Domain Warping)
+* **Ursachen-Diagnose:**
+  * Auf entfernten Felskuppen und Bergflanken wiederholten sich Detail-Texturen (21 m Kachelgröße) über hunderte Male pro Berghang.
+  * An triplanaren Projektionskanten schnitten sich die diagonalen Texturklüfte der X- und Z-Achsen, wodurch ein schachbrett- bzw. wabenartiges Rautengitter entstand.
+* **Multi-Scale Distance-Tiled Triplanar Sampling (`sampleTriplanarAlbedoMulti`, `sampleTriplanarNormMulti`):**
+  * **Nahbereich (< 80 m):** 24 m Detailauflösung für mikroskopische Granitporen, Risse und Kristalle im First-Person-Modus.
+  * **Mittelgrund (80 m – 450 m):** 110 m geologische Schichtungsformationen, um 34° gedreht.
+  * **Fernsicht (> 450 m):** 420 m massive Felswände und Batholith-Strukturen, um 68° gedreht.
+* **Organische 2D-Domänenverzerrung (Domain Warping):**
+  * Koordinaten werden durch kontinuierliches sinusoides Rauschen stochastisch verbogen (`warp = 12 m`).
+  * Jegliche lineare Ausrichtung oder periodische Wiederholung von Texturklüften wird vollständig aufgelöst – Felsflanken wirken wie aus einem einzigen Granitmassiv gemeißelt.
+* **Planare Multi-Skalierung (`sampleAntiTileMulti`):**
+  * Schnee-, Geröll- und Gletschereisflächen skalieren ebenfalls dynamisch mit der Distanz (14 m / 63 m / 224 m), wodurch auch weite Schnee- und Eisfelder frei von Tiling-Artefakten bleiben.
+
+### 2. Eliminierung des flachen Vordergrundrands
+* **Near-Plane-Optimierung (`Camera.hpp`):**
+  * Reduzierung von `m_nearPlane` von 1,0 m auf 0,25 m, um Nahtoleranz-Clipping an Felskanten vor der Kamera zu verhindern.
+* **Grat-Standort-Kalibrierung (`Player.cpp`):**
+  * Zurücksetzen der Spielerposition am Mount Everest Summit Ridge (`m_position = (-8552, -7938)`, Pitch +1,5°), sodass der Blick natürlich entlang des schmalen Schneegrats schweift, ohne in eine geometrisch abgeschnittene Polygonkante zu blicken.
+
+### 3. Geologische Farb- & Materialharmonie (Echte Himalaya-Petrologie)
+* **Beseitigung von Überfärbungen:**
+  * Entfernung der doppelten Gelbband-Multiplikation, die Felsen im Mittelgrund wie braunen Lehm oder Schokolade hatte wirken lassen.
+* **Kühle petrologische Farbkalibrierung:**
+  * Kalibrierung auf echten kaltgrauen Himalaya-Gneis, Granit und Quarzit (`coldRockAlbedo`).
+  * **North Col Formation (7.000 m – 8.180 m):** Kühler, dunkler phyllitischer Tonschiefer.
+  * **The Yellow Band (8.180 m – 8.580 m):** Blassgelber, feiner dolomitischer Travertin-/Kalkmarmor mit natürlicher Bänderung.
+  * **Qomolangma Formation (> 8.580 m):** Grauer mikritischer Kalkstein der Gipfelpyramide.
+  * **Hochalpine Moränen-Entsättigung:** Geröll (Scree) über 5.000 m Höhe wird zu 100 % in kaltgrauen Schieferschotter überführt (keine organischen Brauntöne im Hochgebirge).
+
+### 4. Schatten-Weichheit & Multi-Bounce Umgebungslicht
+* **Weicher Diffus-Terminator (Half-Lambert Penumbra):**
+  * Ersetzt harte Abschneidekanten durch einen breiten, weichen Lichtübergang (`smoothstep(-0.28, 0.92, rawNdotL)`).
+* **Unterer Hemisphären-Schneebounce (Snow & Glacier Ground Bounce):**
+  * Ausgedehnte Gletscher- und Schneeflächen reflektieren bis zu 75 % des einfallenden Sonnenlichts von unten zurück in schattige Nordwände (`snowGroundBounce`).
+* **Kreuztal-Gegenhang-Licht (Cross-Peak Bounce):**
+  * Sonnenbeschienene gegenüberliegende Bergflanken erhellen schattige Schluchten und Karen mit sanftem reflektiertem Licht.
+* **Transparenter Schatten-Boden:**
+  * Ein Mindest-Umgebungslichtboden (`float3(0.14, 0.16, 0.20)`) verhindert pechschwarze, monolithische Schattenblöcke; Felsstrukturen und Schneerinnen bleiben auch im tiefen Schatten voll durchzeichnet.
+
+---
+
 ## 🔭 Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
@@ -308,5 +354,7 @@ In Schritt 7 (1:1 Part III) wurden die drei fundamentalen Säulen fotorealistisc
 * [x] **Schritt 5 (1:1 Part I):** Triplanare PBR-Projektion (streckungsfreie Steilwände), Gaea-Geomorphologie, Couloir Fluting, Everest Yellow Band Strata & stratosphärische Alpin-Physik.
 * [x] **Schritt 6 (1:1 Part II):** Volle 1:1 Gitterauflösung (2M Dreiecke), volumetrisches Wolkenmeer, Alpenglühen, Blizzard/Whiteout & Live Open-Meteo Wetter.
 * [x] **Schritt 7 (1:1 Part III):** Alpines Grat-Sculpting (Multi-Scale Discrete Curvature), hydraulische Couloirs, thermische Schuttkegel, Dual-Frequency Anti-Tiling, Horizon AO & ACES Tone Mapping.
+* [x] **Schritt 8 (1:1 Part IV):** Fotorealismus-Feinschliff: Beseitigung von Wabenmuster/Kachelung durch Multi-Scale Distance Tiling & Domain Warping, authentische Himalaya-Petrologie, Multi-Bounce Schneelicht & weiche Schatten.
+
 
 

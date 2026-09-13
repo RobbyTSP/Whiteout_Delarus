@@ -32,7 +32,7 @@ private:
     float m_pitch = -20.0f;
     float m_fov = 65.0f;
     float m_aspectRatio = 16.0f / 9.0f;
-    float m_nearPlane = 1.0f;
+    float m_nearPlane = 0.25f;
     float m_farPlane = 150000.0f; // 150 km visibility for Himalaya vistas
 
     float m_baseSpeed = 250.0f;     // m/s

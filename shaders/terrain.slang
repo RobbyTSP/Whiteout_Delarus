@@ -87,9 +87,34 @@ float2 rotateUV(float2 uv, float angle) {
     return float2(uv.x * c - uv.y * s, uv.x * s + uv.y * c);
 }
 
-// Anti-Tiling Dual-Frequency Texture Sampling:
-// Blends two incommensurable UV scales and rotations with organic multi-frequency spatial noise,
-// completely eliminating repeating rectangular "wallpaper" patterns across vast distances!
+// Anti-Tiling Multi-Scale Texture Sampling:
+// Blends detail, mid, and far frequencies based on camera distance with domain warping and rotation.
+float3 sampleAntiTileMulti(Sampler2D tex, float2 worldXZ, float distToCam, float baseScale) {
+    float2 warp = float2(
+        sin(worldXZ.y * 0.012 + cos(worldXZ.x * 0.008) * 1.6),
+        cos(worldXZ.x * 0.011 + sin(worldXZ.y * 0.007) * 1.8)
+    ) * 8.0;
+    float2 warpedXZ = worldXZ + warp;
+
+    float farBlend = smoothstep(120.0, 550.0, distToCam);
+    float midBlend = smoothstep(30.0, 160.0, distToCam);
+
+    float2 uvDetail = warpedXZ * (1.0 / baseScale);
+    float2 uvMid = rotateUV(warpedXZ * (1.0 / (baseScale * 4.5)), 0.52) + float2(0.37, 0.61);
+    float2 uvFar = rotateUV(warpedXZ * (1.0 / (baseScale * 16.0)), 1.15) + float2(0.82, 0.24);
+
+    float n1 = sin(worldXZ.x * 0.005 + sin(worldXZ.y * 0.004) * 2.3);
+    float n2 = cos(worldXZ.y * 0.0045 + cos(worldXZ.x * 0.004) * 1.9);
+    float noise = smoothstep(0.28, 0.72, (n1 * n2) * 0.5 + 0.5);
+
+    float3 colDetail = lerp(tex.Sample(uvDetail).rgb, tex.Sample(rotateUV(uvDetail, 0.68) + float2(0.4, 0.2)).rgb, noise * 0.5);
+    float3 colMid = lerp(tex.Sample(uvMid).rgb, tex.Sample(rotateUV(uvMid, 0.76) + float2(0.7, 0.5)).rgb, noise * 0.5);
+    float3 colFar = lerp(tex.Sample(uvFar).rgb, tex.Sample(rotateUV(uvFar, 0.89) + float2(0.2, 0.9)).rgb, noise * 0.5);
+
+    float3 colCloseMid = lerp(colDetail, colMid, midBlend);
+    return lerp(colCloseMid, colFar, farBlend);
+}
+
 float3 sampleAntiTile(Sampler2D tex, float2 uv, float3 worldPos) {
     float2 uv1 = uv;
     float2 uv2 = rotateUV(uv * 1.37, 0.54) + float2(0.43, 0.17);
@@ -136,6 +161,89 @@ float3 ACESFilm(float3 x) {
     float e = 0.14;
     return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
+
+// Domain-Warped Multi-Scale Distance-Tiled Triplanar Texture Sampling:
+// Completely eliminates repeating rectangular or hexagonal grid tiling, hatching, and waffle patterns!
+float3 sampleTriplanarAlbedoMulti(Sampler2D tex, float2 planeUV, float distToCam) {
+    // 1. Organic Domain Warping: twists and bends coordinates so straight texture cracks don't form repeating lines
+    float2 warp = float2(
+        sin(planeUV.y * 0.015 + cos(planeUV.x * 0.009) * 1.7),
+        cos(planeUV.x * 0.014 + sin(planeUV.y * 0.008) * 1.9)
+    ) * 12.0;
+    float2 warpedUV = planeUV + warp;
+
+    // 2. Smooth Distance-Based Macro Transition:
+    // Close (< 80m): 24m detail scale for rich hand-touch granite crevices
+    // Mid (80m - 450m): 110m geological formation scale
+    // Far (> 450m): 420m massive batholith / massif scale
+    float farBlend = smoothstep(120.0, 600.0, distToCam);
+    float midBlend = smoothstep(30.0, 160.0, distToCam);
+
+    // Detail layer: 24m scale
+    float2 uvDetail = warpedUV * (1.0 / 24.0);
+    // Mid layer: 110m scale, rotated by 34 degrees
+    float2 uvMid = rotateUV(warpedUV * (1.0 / 110.0), 0.59) + float2(0.41, 0.77);
+    // Far layer: 420m scale, rotated by 68 degrees
+    float2 uvFar = rotateUV(warpedUV * (1.0 / 420.0), 1.18) + float2(0.83, 0.29);
+
+    // Low-frequency spatial noise to break up intra-layer periodicity
+    float n1 = sin(planeUV.x * 0.004 + sin(planeUV.y * 0.003) * 2.4);
+    float n2 = cos(planeUV.y * 0.0035 + cos(planeUV.x * 0.004) * 2.1);
+    float noise = smoothstep(0.25, 0.75, (n1 * n2) * 0.5 + 0.5);
+
+    // Blend rotated offset for each active scale to eliminate directional bias
+    float3 colDetail = lerp(tex.Sample(uvDetail).rgb, tex.Sample(rotateUV(uvDetail, 0.73) + float2(0.3, 0.5)).rgb, noise * 0.5);
+    float3 colMid = lerp(tex.Sample(uvMid).rgb, tex.Sample(rotateUV(uvMid, 0.81) + float2(0.6, 0.2)).rgb, noise * 0.5);
+    float3 colFar = lerp(tex.Sample(uvFar).rgb, tex.Sample(rotateUV(uvFar, 0.95) + float2(0.1, 0.8)).rgb, noise * 0.5);
+
+    float3 colCloseMid = lerp(colDetail, colMid, midBlend);
+    return lerp(colCloseMid, colFar, farBlend);
+}
+
+float3 sampleTriplanarNormMulti(Sampler2D tex, float2 planeUV, float distToCam) {
+    float2 warp = float2(
+        sin(planeUV.y * 0.015 + cos(planeUV.x * 0.009) * 1.7),
+        cos(planeUV.x * 0.014 + sin(planeUV.y * 0.008) * 1.9)
+    ) * 12.0;
+    float2 warpedUV = planeUV + warp;
+
+    float farBlend = smoothstep(120.0, 600.0, distToCam);
+    float midBlend = smoothstep(30.0, 160.0, distToCam);
+
+    float2 uvDetail = warpedUV * (1.0 / 24.0);
+    float2 uvMid = rotateUV(warpedUV * (1.0 / 110.0), 0.59) + float2(0.41, 0.77);
+    float2 uvFar = rotateUV(warpedUV * (1.0 / 420.0), 1.18) + float2(0.83, 0.29);
+
+    float3 nDetail = tex.Sample(uvDetail).rgb * 2.0 - 1.0;
+    float3 nMid = tex.Sample(uvMid).rgb * 2.0 - 1.0;
+    float3 nFar = tex.Sample(uvFar).rgb * 2.0 - 1.0;
+
+    float3 nCloseMid = lerp(nDetail, nMid, midBlend);
+    return normalize(lerp(nCloseMid, nFar, farBlend));
+}
+
+float sampleTriplanarRoughMulti(Sampler2D tex, float2 planeUV, float distToCam) {
+    float2 warp = float2(
+        sin(planeUV.y * 0.015 + cos(planeUV.x * 0.009) * 1.7),
+        cos(planeUV.x * 0.014 + sin(planeUV.y * 0.008) * 1.9)
+    ) * 12.0;
+    float2 warpedUV = planeUV + warp;
+
+    float farBlend = smoothstep(120.0, 600.0, distToCam);
+    float midBlend = smoothstep(30.0, 160.0, distToCam);
+
+    float2 uvDetail = warpedUV * (1.0 / 24.0);
+    float2 uvMid = rotateUV(warpedUV * (1.0 / 110.0), 0.59) + float2(0.41, 0.77);
+    float2 uvFar = rotateUV(warpedUV * (1.0 / 420.0), 1.18) + float2(0.83, 0.29);
+
+    float rDetail = tex.Sample(uvDetail).r;
+    float rMid = tex.Sample(uvMid).r;
+    float rFar = tex.Sample(uvFar).r;
+
+    float rCloseMid = lerp(rDetail, rMid, midBlend);
+    return lerp(rCloseMid, rFar, farBlend);
+}
+
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
@@ -209,60 +317,64 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         screeWeight = 1.0;
     }
 
-    // 3. Triplanar PBR Mapping for Rock Cliffs (Completely Eliminates Vertical Stretching!)
-    float rockScale = 1.0 / 22.0; // 22 meters per texture repetition
-    float2 uvX = input.worldPos.zy * rockScale;
-    float2 uvY = input.worldPos.xz * rockScale;
-    float2 uvZ = input.worldPos.xy * rockScale;
-
-    // Sharp triplanar projection blend weights (power-8 for clean, stretch-free edges)
-    float3 blendWeights = pow(abs(geomN), float3(8.0, 8.0, 8.0));
+    // Smooth triplanar projection blend weights based on high-precision normal N
+    float3 blendWeights = pow(abs(N), float3(3.0, 3.0, 3.0));
     blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z + 0.00001);
 
-    // Sample Triplanar Rock Albedo with Anti-Tiling
-    float3 rockAlbedoX = sampleAntiTile(texRockAlbedo, uvX, input.worldPos.zyx);
-    float3 rockAlbedoY = sampleAntiTile(texRockAlbedo, uvY, input.worldPos.xyz);
-    float3 rockAlbedoZ = sampleAntiTile(texRockAlbedo, uvZ, input.worldPos.xzy);
+    // Sample Triplanar Rock Albedo with Multi-Scale Distance-Tiled Anti-Tiling (eliminates waffle/honeycomb tiling!)
+    float3 rockAlbedoX = sampleTriplanarAlbedoMulti(texRockAlbedo, input.worldPos.zy, distToCam);
+    float3 rockAlbedoY = sampleTriplanarAlbedoMulti(texRockAlbedo, input.worldPos.xz, distToCam);
+    float3 rockAlbedoZ = sampleTriplanarAlbedoMulti(texRockAlbedo, input.worldPos.xy, distToCam);
     float3 triplanarRockAlbedo = rockAlbedoX * blendWeights.x + rockAlbedoY * blendWeights.y + rockAlbedoZ * blendWeights.z;
 
-    // Sample Triplanar Rock Normal
-    float3 rockNormX = texRockNormal.Sample(uvX).rgb * 2.0 - 1.0;
-    float3 rockNormY = texRockNormal.Sample(uvY).rgb * 2.0 - 1.0;
-    float3 rockNormZ = texRockNormal.Sample(uvZ).rgb * 2.0 - 1.0;
+    // Sample Triplanar Rock Normal with Multi-Scale Distance-Tiled blending
+    float3 rockNormX = sampleTriplanarNormMulti(texRockNormal, input.worldPos.zy, distToCam);
+    float3 rockNormY = sampleTriplanarNormMulti(texRockNormal, input.worldPos.xz, distToCam);
+    float3 rockNormZ = sampleTriplanarNormMulti(texRockNormal, input.worldPos.xy, distToCam);
 
     // World-space normal reorientation for triplanar projection
-    float3 wNormX = float3(rockNormX.z * sign(geomN.x), rockNormX.y, rockNormX.x * sign(geomN.x));
-    float3 wNormY = float3(rockNormY.x, rockNormY.z * sign(geomN.y), rockNormY.y);
-    float3 wNormZ = float3(rockNormZ.x, rockNormZ.y, rockNormZ.z * sign(geomN.z));
+    float3 wNormX = float3(rockNormX.z * sign(N.x), rockNormX.y, rockNormX.x * sign(N.x));
+    float3 wNormY = float3(rockNormY.x, rockNormY.z * sign(N.y), rockNormY.y);
+    float3 wNormZ = float3(rockNormZ.x, rockNormZ.y, rockNormZ.z * sign(N.z));
     float3 triplanarRockNormal = normalize(wNormX * blendWeights.x + wNormY * blendWeights.y + wNormZ * blendWeights.z);
 
-    // Triplanar Rock Roughness
-    float rockRoughX = texRockRoughness.Sample(uvX).r;
-    float rockRoughY = texRockRoughness.Sample(uvY).r;
-    float rockRoughZ = texRockRoughness.Sample(uvZ).r;
+    // Triplanar Rock Roughness with Multi-Scale Distance-Tiling
+    float rockRoughX = sampleTriplanarRoughMulti(texRockRoughness, input.worldPos.zy, distToCam);
+    float rockRoughY = sampleTriplanarRoughMulti(texRockRoughness, input.worldPos.xz, distToCam);
+    float rockRoughZ = sampleTriplanarRoughMulti(texRockRoughness, input.worldPos.xy, distToCam);
     float triplanarRockRoughness = rockRoughX * blendWeights.x + rockRoughY * blendWeights.y + rockRoughZ * blendWeights.z;
 
     // 4. Geological Strata: Mount Everest Rock Formations & The "Yellow Band"
+    // Authentic Himalayan Petrology: Cool down warm tones into cold slate grey, gneiss & granite
+    float rockLuma = dot(triplanarRockAlbedo, float3(0.299, 0.587, 0.114));
+    float3 coldRockAlbedo = lerp(triplanarRockAlbedo, float3(rockLuma * 0.94, rockLuma * 0.98, rockLuma * 1.04), 0.60) * 1.12;
+
     float strataH = input.worldPos.y - 0.22 * input.worldPos.z;
-    float3 strataTint = float3(0.92, 0.92, 0.95);
+    float3 strataTint = float3(0.96, 0.98, 1.00);
 
     if (strataH >= 7000.0 && strataH < 8180.0) {
-        float metaBand = sin(strataH * 0.08) * 0.05 * clamp(1.0 - distToCam / 600.0, 0.0, 1.0);
-        strataTint = float3(0.88 + metaBand, 0.86 + metaBand, 0.82);
+        // North Col Formation: Dark pelitic schists and phyllites
+        float metaBand = sin(strataH * 0.08) * 0.04 * clamp(1.0 - distToCam / 600.0, 0.0, 1.0);
+        strataTint = float3(0.86 + metaBand, 0.88 + metaBand, 0.92);
     }
-    else if (strataH >= 8180.0 && strataH < 8600.0) {
-        float yellowRhythm = (sin(strataH * 0.14) * 0.15) * clamp(1.0 - distToCam / 500.0, 0.0, 1.0);
-        strataTint = lerp(float3(1.42, 1.22, 0.76), float3(1.26, 1.08, 0.68), yellowRhythm + 0.5);
+    else if (strataH >= 8180.0 && strataH < 8580.0) {
+        // The Yellow Band: Pale buff / golden-cream dolomitic limestone/marble
+        // Real dolomitic marble is pale ochre/travertine, NOT dark brown clay!
+        float yellowRhythm = (sin(strataH * 0.12) * 0.08) * clamp(1.0 - distToCam / 500.0, 0.0, 1.0);
+        strataTint = lerp(float3(1.22, 1.16, 0.94), float3(1.14, 1.08, 0.88), yellowRhythm + 0.5);
     }
-    else if (strataH >= 8600.0) {
-        strataTint = float3(1.15, 1.12, 1.08);
+    else if (strataH >= 8580.0) {
+        // Qomolangma Formation: Ordovician limestone of the summit pyramid
+        strataTint = float3(1.05, 1.06, 1.08);
     }
 
-    triplanarRockAlbedo = clamp(triplanarRockAlbedo * strataTint * 1.15, 0.0, 1.0);
+    triplanarRockAlbedo = clamp(coldRockAlbedo * strataTint, 0.0, 1.0);
 
-    // 5. Anti-Tiling Planar & POM Detail Sampling for Snow, Scree & Glacier
-    float2 detailUV = input.uv * 1150.0;
-    float2 microUV = input.uv * 4500.0;
+    // 5. Anti-Tiling Planar & POM Detail Sampling for Snow, Scree & Glacier (World Metric Space)
+    // Decoupled completely from mesh vertex resolution to eliminate grid/waffle aliasing!
+    float2 snowUV = input.worldPos.xz * (1.0 / 18.0);
+    float2 screeUV = input.worldPos.xz * (1.0 / 12.5);
+    float2 glacierUV = input.worldPos.xz * (1.0 / 28.0);
 
     // Robust orthonormal tangent space (Gram-Schmidt):
     float3 upRef = (abs(geomN.y) < 0.99) ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
@@ -270,30 +382,35 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 bitangent = cross(geomN, tangent);
     float3 viewDirTS = normalize(float3(dot(V, tangent), dot(V, bitangent), dot(V, geomN)));
 
-    // Parallax Occlusion Mapping (POM) on ground within 160m of camera
-    float pomFactor = clamp(1.0 - distToCam / 160.0, 0.0, 1.0);
-    float2 pbrUV = detailUV;
+    // Parallax Occlusion Mapping (POM) on ground within 140m of camera
+    float pomFactor = clamp(1.0 - distToCam / 140.0, 0.0, 1.0);
     if (pomFactor > 0.01) {
-        float2 pomOffset = parallaxOcclusion(texSnowDisp, detailUV, viewDirTS, 0.038 * pomFactor);
-        pbrUV = lerp(detailUV, pomOffset, pomFactor);
+        float2 pomOffset = parallaxOcclusion(texSnowDisp, snowUV, viewDirTS, 0.035 * pomFactor);
+        snowUV = lerp(snowUV, pomOffset, pomFactor);
     }
 
-    // Sample Snow, Scree, Glacier with Anti-Tiling to eliminate the "wallpaper effect"
-    float3 snowAlbedo = sampleAntiTile(texSnowAlbedo, pbrUV, input.worldPos);
-    float3 snowNorm = texSnowNormal.Sample(pbrUV).rgb * 2.0 - 1.0;
-    float snowRough = texSnowRoughness.Sample(pbrUV).r * 0.85 + 0.15; // Crystalline firn ~0.62
+    // Sample Snow with Multi-Scale Anti-Tiling
+    float3 snowAlbedo = sampleAntiTileMulti(texSnowAlbedo, input.worldPos.xz, distToCam, 18.0);
+    float3 snowNorm = texSnowNormal.Sample(snowUV).rgb * 2.0 - 1.0;
+    float snowRough = texSnowRoughness.Sample(snowUV).r * 0.85 + 0.15; // Crystalline firn ~0.62
 
-    float3 screeAlbedo = sampleAntiTile(texScreeAlbedo, pbrUV, input.worldPos);
-    // Alpine Desaturation above tree-line (> 4,200m): turns organic soil into grey moraine schist/shale
-    float moraineGain = smoothstep(4000.0, 5100.0, input.worldPos.y);
+    // Sample Scree / Moraine: Top-down blended with side projection to prevent stretching on 30° slopes
+    float3 screeAlbedoTop = sampleAntiTileMulti(texScreeAlbedo, input.worldPos.xz, distToCam, 14.0);
+    float3 screeAlbedoSide = sampleTriplanarAlbedoMulti(texScreeAlbedo, input.worldPos.zy, distToCam);
+    float3 screeAlbedo = lerp(screeAlbedoTop, screeAlbedoSide, clamp((1.0 - N.y) * 1.5, 0.0, 1.0));
+
+    // Authentic High-Himalayan Petrology: Above 5,000m, scree is cold grey schist/slate/granite (no brown mud!)
+    float alpineMoraineGain = smoothstep(4200.0, 6200.0, input.worldPos.y);
     float screeLuma = dot(screeAlbedo, float3(0.299, 0.587, 0.114));
-    screeAlbedo = lerp(screeAlbedo, float3(screeLuma * 0.75, screeLuma * 0.72, screeLuma * 0.70), moraineGain * 0.88);
-    float3 screeNorm = texScreeNormal.Sample(pbrUV).rgb * 2.0 - 1.0;
-    float screeRough = clamp(texScreeRoughness.Sample(pbrUV).r * 1.15, 0.82, 0.96); // Matte talus ~0.92
+    screeAlbedo = lerp(screeAlbedo, float3(screeLuma * 0.88, screeLuma * 0.90, screeLuma * 0.94), alpineMoraineGain);
 
-    float3 glacierAlbedo = sampleAntiTile(texGlacierAlbedo, pbrUV, input.worldPos);
-    float3 glacierNorm = texGlacierNormal.Sample(pbrUV).rgb * 2.0 - 1.0;
-    float glacierRough = clamp(texGlacierRoughness.Sample(pbrUV).r * 0.55, 0.20, 0.38); // Smooth ice ~0.28
+    float3 screeNorm = texScreeNormal.Sample(screeUV).rgb * 2.0 - 1.0;
+    float screeRough = clamp(texScreeRoughness.Sample(screeUV).r * 1.15, 0.82, 0.96); // Matte talus ~0.92
+
+    // Sample Glacier Ice with Multi-Scale Anti-Tiling
+    float3 glacierAlbedo = sampleAntiTileMulti(texGlacierAlbedo, input.worldPos.xz, distToCam, 28.0);
+    float3 glacierNorm = texGlacierNormal.Sample(glacierUV).rgb * 2.0 - 1.0;
+    float glacierRough = clamp(texGlacierRoughness.Sample(glacierUV).r * 0.55, 0.20, 0.38); // Smooth ice ~0.28
 
     // Composite Planar Surfaces
     float3 planarAlbedo = snowAlbedo * snowWeight + screeAlbedo * screeWeight + glacierAlbedo * glacierWeight;
@@ -304,20 +421,18 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 detailAlbedo = triplanarRockAlbedo * rockWeight + planarAlbedo;
     float roughness = triplanarRockRoughness * rockWeight + planarRough;
 
-    // High-frequency micro-grain: prevents pixelation at close distances (< 5m)
-    float microGrain = texRockRoughness.Sample(microUV).r * 0.08 - 0.04;
+    // Metric close-up micro-grain: active ONLY within 12 meters of camera
+    // Completely eliminates distant Moiré / honeycomb interference patterns!
+    float closeGrainDist = clamp(1.0 - distToCam / 12.0, 0.0, 1.0);
+    float microGrain = (closeGrainDist > 0.01) ? 
+        (texRockRoughness.Sample(input.worldPos.xz * 3.5).r * 0.05 - 0.025) * closeGrainDist : 0.0;
     detailAlbedo = clamp(detailAlbedo + microGrain, 0.0, 1.0);
 
     // 6. Seamless Multi-Scale Blending:
     // PBR detail materials are the PRIMARY visual definition across the ENTIRE mountain at all distances!
-    // The satellite orthofoto is applied as a subtle macro tint (25%) so regional color variations remain intact.
-    float3 satMacroTint = lerp(float3(1.0, 1.0, 1.0), satColor.rgb * 1.35, 0.25);
+    // The satellite orthofoto is applied as a subtle macro tint (20%) so regional color variations remain intact.
+    float3 satMacroTint = lerp(float3(1.0, 1.0, 1.0), satColor.rgb * 1.20, 0.20);
     float3 compositeAlbedo = detailAlbedo * satMacroTint;
-
-    // Apply Yellow Band geological marble strata to exposed rock
-    float yellowBandMask = smoothstep(8160.0, 8240.0, strataH) * (1.0 - smoothstep(8580.0, 8640.0, strataH));
-    float3 strataMacroTint = lerp(float3(1.0, 1.0, 1.0), float3(1.36, 1.18, 0.72), yellowBandMask * rockWeight * 0.75);
-    compositeAlbedo *= strataMacroTint;
 
     // Composite detailed normal safely (prevent any normalize(0,0,0) NaNs):
     float planarLenSq = dot(planarNorm, planarNorm);
@@ -332,30 +447,37 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     // 7. Geomorphological Ambient Occlusion (Sky View Factor)
     // Deep couloirs, narrow canyons, and base folds receive deep contact shadowing
-    float ao = clamp(geomMorph.a, 0.22, 1.0);
+    float ao = clamp(geomMorph.a, 0.25, 1.0);
 
     // 8. Stratospheric Himalayan Atmospheric Lighting & Irradiance
-    // Soft diffuse terminator (Half-Lambert wrap) prevents harsh polygonal shadow edges on hills
+    // Soft diffuse terminator (Half-Lambert wrap) prevents harsh blocky polygonal shadow edges
     float rawNdotL = dot(finalNormal, L);
-    float NdotL = clamp((rawNdotL + 0.20) / 1.20, 0.0, 1.0);
+    float diffuseWrap = 0.28;
+    float NdotL = smoothstep(-diffuseWrap, 0.92, rawNdotL);
 
     // Alpenglühen: High summits catch sunrise first while deep valleys are still in mountain shadow
     float dawnSummitBoost = clamp((input.worldPos.y - 4500.0) / 4200.0, 0.0, 1.0);
     float earthShadow = clamp(L.y * 14.0 + dawnSummitBoost * 0.70, 0.0, 1.0);
-    // Direct light gets soft contact occlusion in deep crevices
     float3 directLight = NdotL * pc.sunColor.rgb * earthShadow * (0.60 + 0.40 * ao);
 
     // Stratospheric Sky Model: Dark navy sky with altitude progression
     float altRatio = clamp((input.worldPos.y - 5000.0) / 3848.0, 0.0, 1.0);
     float skyHemisphere = clamp(finalNormal.y * 0.5 + 0.5, 0.0, 1.0);
-    float3 lowAltSky = lerp(float3(0.16, 0.20, 0.28), float3(0.38, 0.50, 0.70), skyHemisphere);
-    float3 highAltSky = lerp(float3(0.08, 0.10, 0.18), float3(0.20, 0.28, 0.48), skyHemisphere);
-    // Sky light fully modulated by Horizon AO (Sky View Factor)
-    float3 skyLight = lerp(lowAltSky, highAltSky, altRatio) * (ao * 0.85 + 0.15);
+    float3 lowAltSky = lerp(float3(0.18, 0.22, 0.30), float3(0.42, 0.54, 0.75), skyHemisphere);
+    float3 highAltSky = lerp(float3(0.10, 0.13, 0.22), float3(0.24, 0.32, 0.52), skyHemisphere);
+    float3 skyLight = lerp(lowAltSky, highAltSky, altRatio) * (ao * 0.80 + 0.20);
 
-    // Alpine indirect snow-bounce fill light: sunlit peaks bounce ambient light into shaded valleys
-    float3 snowBounce = pc.sunColor.rgb * 0.22 * (ao * 0.70 + 0.30) * earthShadow;
-    float3 totalAmbient = skyLight + snowBounce;
+    // Surrounding Glacier & Snow Bounce (Lower Hemisphere Fill):
+    // High alpine snowfields bounce up to 75% of sunlight back up into shadowed rock walls
+    float groundBounceFactor = clamp(-finalNormal.y * 0.5 + 0.5, 0.0, 1.0);
+    float3 snowGroundBounce = float3(0.24, 0.28, 0.34) * groundBounceFactor * (ao * 0.65 + 0.35);
+
+    // Opposing peak cross-bounce: sunlit opposite valley flanks cast soft fill
+    float crossBounceFactor = clamp(-rawNdotL * 0.5 + 0.5, 0.0, 1.0);
+    float3 crossPeakBounce = pc.sunColor.rgb * 0.16 * crossBounceFactor * (ao * 0.60 + 0.40) * earthShadow;
+
+    // Rich ambient composite with a solid visibility floor (prevents pitch-black monolithic shadow blocks)
+    float3 totalAmbient = max(skyLight + snowGroundBounce + crossPeakBounce, float3(0.14, 0.16, 0.20));
 
     // 9. PBR Specular & Diamond Dust Snow Glitter
     float3 H = normalize(L + V);
@@ -442,3 +564,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     return float4(toneMapped, 1.0);
 }
+
+
+
+
