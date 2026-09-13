@@ -22,10 +22,10 @@
     "dy_meters_per_pixel": 33.71435512147644
   },
   "elevation_meters": {
-    "min": 3651.0,
-    "max": 8753.0,
-    "mean": 5643.91650390625,
-    "range": 5102.0
+    "min": 3657.0,
+    "max": 8792.767578125,
+    "mean": 5648.97314453125,
+    "range": 5135.767578125
   },
   "files": {
     "raw_float32": "everest_dem_float32.bin",
@@ -36,7 +36,7 @@
   "vulkan_binding_guidelines": {
     "terrain_scale_x": 34610.51254563512,
     "terrain_scale_y": 34523.49964439187,
-    "height_offset": 3651.0,
-    "height_scale": 5102.0
+    "height_offset": 3657.0,
+    "height_scale": 5135.767578125
   }
 }

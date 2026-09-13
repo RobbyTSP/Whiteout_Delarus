@@ -24,10 +24,10 @@ void Player::teleportToPreset(int preset) {
             m_currentLocationName = "Everest Base Camp (South)";
             break;
         case 2: // Mount Everest Summit Ridge / Hillary Step
-            m_position.x = -8537.0f;
-            m_position.z = -7940.0f;
-            m_yaw = -115.0f;
-            m_pitch = -6.0f;
+            m_position.x = -8560.0f;
+            m_position.z = -7945.0f;
+            m_yaw = 35.0f;
+            m_pitch = -4.0f;
             m_currentLocationName = "Mount Everest Summit Ridge (8,848m)";
             break;
         case 3: // Lhotse Face / Camp 3

@@ -260,6 +260,45 @@ In Schritt 6 (1:1 Part II) wurde die Landschaft auf die maximale metrische Aufl�
 
 ---
 
+## 🏔️ Schritt 7: Alpines Grat-Sculpting, Anti-Tiling, Horizon AO & ACES Filmic Tone Mapping (1:1 Part III - Abgeschlossen)
+
+In Schritt 7 (1:1 Part III) wurden die drei fundamentalen Säulen fotorealistischer Gebirgsdarstellung nach professionellen Geländegenerator-Prinzipien (Gaea, World Creator, Houdini) implementiert:
+
+### 1. Geometrie & Alpine Formgebung (Weg vom runden "Marshmallow-Look")
+* **Multi-Scale Discrete Curvature Ridge & Arête Sharpening ([`scripts/sculpt_himalayas.py`](scripts/sculpt_himalayas.py)):**
+  * Konvexe Geländegrate werden durch diskrete Krümmungsfilter ($\Delta h_1$ bei 34 m, $\Delta h_2$ bei 68 m) analysiert und gezielt aufgerichtet (bis zu +100,8 m Hebung an Graten).
+  * Verwandelt abgerundete Satelliten-Höhenkuppen in messerscharfe Felsgrate (Knife-Edge Arêtes), steile Wandpfeiler und dramatische Gipfelhörner (Ama Dablam, Hillary Step, Nuptse-Grat).
+* **Hydraulische Couloir-Rinnen (Fluvial Couloir Fluting):**
+  * Wasser- und Lawinenfluss konvergieren in steilen Hangrinnen (> 24°).
+  * Schneidet bis zu 91,5 m tiefe, V-förmige Rinnen und Lawinenrunsen in die Steilflanken ein, in denen sich Firnschnee physikalisch sammelt.
+* **Symmetrische thermische Felssturz-Erosion (Cellular Automata):**
+  * Masse-konservierender 4-Wege-Zelltransfer: Felswände oberhalb des Schüttungswinkels (> 38°) brechen physikalisch ab.
+  * Das Geröll lagert sich am Wandfuß in einem natürlichen Schüttungswinkel von 25°–34° ab und bildet charakteristische Schuttkegel (Talus Scree Cones) ohne Richtungsverzerrung.
+
+### 2. Shader & Texturierung (Weg vom Texturmatsch & Wallpaper-Kacheleffekt)
+* **Dual-Frequency Anti-Tiling Shader:**
+  * Beseitigt das berüchtigte repetitive "Kachelmuster" (Wallpaper-Effekt) bei Fernsicht über 35 km hinweg vollständig.
+  * Überblendet zwei inkommensurable UV-Skalierungen und Rotationen ($1{,}37\times$ Frequenz, $31^\circ$ Drehung) mit organischem, domänenverzerrtem 2D-Rauschen.
+* **Präzise physikalische Neigungs-Weiche (Slope-Masking):**
+  * **Flach (< 22°):** Firnschnee auf Hochebenen, Gletschereis im Khumbu-Tal oder Moränengrund im Talboden.
+  * **Mittel (22°–36°):** Geröll, Moränen-Schotter & thermische Schuttkegel (Talus Scree).
+  * **Steil (> 36°):** 100% streckungsfreie triplanare Felswand (Granit, Schiefer, Yellow Band Marmor).
+* **Parallax Occlusion Mapping (POM) & Micro-Grain:**
+  * Erhabene Stein- und Eisstrukturen mit echtem Tiefenversatz im First-Person-Nahbereich (< 160 m).
+  * Hochfrequentes Mikrokorn verhindert Pixelierung selbst bei wenigen Zentimetern Abstand.
+
+### 3. Beleuchtung, Atmosphäre & Kontrast (Für echten Maßstab)
+* **Geomorphologische Horizon Ambient Occlusion (Sky View Factor):**
+  * 16-Azimut-Horizontstrahlen über 600 m Umkreis ermitteln den sichtbaren Himmelsraumanteil.
+  * Tiefe Rinnen, Karen und Schluchten erhalten realistische Kontaktschatten und plastische Tiefenwirkung.
+* **ACES Filmic Tone Mapping (Anti-Blowout Highlight Preservation):**
+  * Verhindert das Ausbrennen (Blowout) heller Sonnenreflexionen auf Schnee und Firneis.
+  * Mikro-Glimmer und Schneekristall-Strukturen bleiben auch bei greller Mittagssonne erhalten.
+* **Höhenangepasstes Rayleigh-Haze:**
+  * Kristallklare Himalaya-Fernsicht über 100+ km mit stratosphärischer Indigo-Verdunklung in Gipfelhöhe.
+
+---
+
 ## 🔭 Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
@@ -268,5 +307,6 @@ In Schritt 6 (1:1 Part II) wurde die Landschaft auf die maximale metrische Aufl�
 * [x] **Schritt 4:** 18-Kanal PBR-Pipeline, POM (Parallax Occlusion Mapping), ESRI-Satelliten-Overlay & Slope Splatting.
 * [x] **Schritt 5 (1:1 Part I):** Triplanare PBR-Projektion (streckungsfreie Steilwände), Gaea-Geomorphologie, Couloir Fluting, Everest Yellow Band Strata & stratosphärische Alpin-Physik.
 * [x] **Schritt 6 (1:1 Part II):** Volle 1:1 Gitterauflösung (2M Dreiecke), volumetrisches Wolkenmeer, Alpenglühen, Blizzard/Whiteout & Live Open-Meteo Wetter.
+* [x] **Schritt 7 (1:1 Part III):** Alpines Grat-Sculpting (Multi-Scale Discrete Curvature), hydraulische Couloirs, thermische Schuttkegel, Dual-Frequency Anti-Tiling, Horizon AO & ACES Tone Mapping.
 
 

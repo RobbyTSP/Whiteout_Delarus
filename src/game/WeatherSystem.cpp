@@ -98,6 +98,8 @@ void WeatherSystem::setTimeOfDayPreset(TimeOfDayPreset preset) {
             calculateSolarPosition(m_hourOfDay);
             // Blazing golden-rose / fiery pink Alpenglühen hitting summit pyramid
             m_sunColor = glm::vec3(1.78f, 1.05f, 0.62f);
+            m_cloudBase = 4400.0f;
+            m_cloudDensity = 0.85f;
             std::cout << "[WeatherSystem] Time: Dawn Alpenglühen (05:51) - First golden-rose light on Everest Summit" << std::endl;
             break;
 
@@ -107,6 +109,8 @@ void WeatherSystem::setTimeOfDayPreset(TimeOfDayPreset preset) {
             calculateSolarPosition(m_hourOfDay);
             // Brilliant stratospheric midday sun
             m_sunColor = glm::vec3(1.30f, 1.25f, 1.15f);
+            m_cloudBase = 4400.0f;
+            m_cloudDensity = 0.0f; // Crystal-clear alpine visibility at noon!
             std::cout << "[WeatherSystem] Time: Crisp Midday (12:00) - Harsh stratospheric sun & sharp shadows" << std::endl;
             break;
 
@@ -116,6 +120,8 @@ void WeatherSystem::setTimeOfDayPreset(TimeOfDayPreset preset) {
             calculateSolarPosition(m_hourOfDay);
             // Deep crimson, ruby-amber evening Alpenglühen
             m_sunColor = glm::vec3(1.85f, 0.72f, 0.38f);
+            m_cloudBase = 4450.0f;
+            m_cloudDensity = 0.80f;
             std::cout << "[WeatherSystem] Time: Sunset Alpenglühen (18:21) - Fiery crimson glow across Lhotse & Everest" << std::endl;
             break;
 
@@ -125,6 +131,8 @@ void WeatherSystem::setTimeOfDayPreset(TimeOfDayPreset preset) {
             m_sunDir = glm::normalize(glm::vec3(-0.35f, 0.75f, 0.55f));
             // Cool silvery-blue lunar illumination on snow & glaciers
             m_sunColor = glm::vec3(0.14f, 0.18f, 0.32f);
+            m_cloudBase = 4300.0f;
+            m_cloudDensity = 0.40f;
             std::cout << "[WeatherSystem] Time: Moonlit Night (22:30) - Silver moonlight over frozen Himalayan glaciers" << std::endl;
             break;
 
