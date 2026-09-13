@@ -345,6 +345,32 @@ In Schritt 8 (1:1 Part IV) wurden die verbliebenen visuellen Schwachstellen und 
 
 ---
 
+## 🏔️ Schritt 9: Geomorphologischer 1:1 Echtwelt-Abgleich & Gipfel-Authentizität (1:1 Part V - Geplant)
+
+In Schritt 9 (1:1 Part V) widmen wir uns der authentischen Wiedererkennbarkeit und physikalischen Echtwelt-Geomorphologie des gesamten Everest-Massivs:
+
+### 1. Kalibrierung der Berggeometrie (Weg vom "Nadel- / Über-Spitzungs-Look")
+* **Problem:** Aktuell wirken Gipfel und Grate teilweise künstlich über-geschärft oder nadelspitz. Echte 8.000er besitzen gewaltige, massive Felssockel, breite Pfeilerstrukturen, gestufte Wandfluchten und keine zerbrechlichen Nadelspitzen.
+* **Geplante Maßnahmen:**
+  * **Kalibrierung der Hebe-Algorithmen (`sharpen_alpine_ridges`):** Begrenzung spitzer Singularitäten; Übergang von nadelartigen Spitzen zu massiven, gestuften Felsgraten mit echten Wandabbrüchen.
+  * **Topografischer Profilabgleich:** Abgleich der Silhouetten mit realen topografischen Profilen für Mount Everest (Pyramiden-Gipfelaufbau), Lhotse (monumentale 3.200 m Wandflucht), Nuptse (langgestreckter Scharfkamm) und Ama Dablam (markantes Gipfel-Matterhorn).
+  * **Geomorphologische Pfeiler & Stufen:** Einbindung horizontaler Felsterrassen und geologischer Strukturierung, die echten Berggiganten ihre majestätische Schwere verleihen.
+
+### 2. Natürliche Schnee- & Felsverteilung (Authentische Hangbedeckung)
+* **Problem:** Aktuell wirkt die Schnee- und Felsverteilung noch stellenweise lückenhaft oder unvollständig: An vielen Wänden fehlt Schnee in typischen Akkumulationszonen, während an anderen Stellen Felsstrukturen untergehen.
+* **Geplante Maßnahmen:**
+  * **Schneeakkumulation & Hängegletscher:**
+    * Modellierung permanenter Firnbecken, Kare und markanter Hängegletscher (z. B. das berühmte "Dablam"-Eishängebecken an der Ama Dablam oder die Lhotse-Gletscherhänge).
+    * Sérac-Kanten und Schneebruchzonen mit Blaueis-Schichtung.
+  * **Schneeablagerung auf Steilwand-Stufen:**
+    * Schnee fällt an Steilwänden nicht pauschal weg, sondern bleibt auf Vorsprüngen, Bändern, Terrassen und Absätzen liegen (Schnee-Taschen).
+  * **Winddrift, Luv & Lee:**
+    * Berücksichtigung der vorherrschenden Jetstream-Windrichtungen: Windexponierte Luv-Grate und überhängende Pfeiler werden vom Wind freigeblasen (blanker, gefrorener Fels), während windgeschützte Lee-Hänge und Mulden dicke Wechten und tiefen Pulverschnee ansammeln.
+  * **Satellitengestützte Schneegrenzen-Maskierung:**
+    * Einbindung von spektralen Schneemasken (NDSI / Orthofoto-Schneeextraktion), um reale schneebedeckte vs. schneefreie Felsareale 1:1 im Shader zu verankern.
+
+---
+
 ## 🔭 Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
@@ -355,6 +381,8 @@ In Schritt 8 (1:1 Part IV) wurden die verbliebenen visuellen Schwachstellen und 
 * [x] **Schritt 6 (1:1 Part II):** Volle 1:1 Gitterauflösung (2M Dreiecke), volumetrisches Wolkenmeer, Alpenglühen, Blizzard/Whiteout & Live Open-Meteo Wetter.
 * [x] **Schritt 7 (1:1 Part III):** Alpines Grat-Sculpting (Multi-Scale Discrete Curvature), hydraulische Couloirs, thermische Schuttkegel, Dual-Frequency Anti-Tiling, Horizon AO & ACES Tone Mapping.
 * [x] **Schritt 8 (1:1 Part IV):** Fotorealismus-Feinschliff: Beseitigung von Wabenmuster/Kachelung durch Multi-Scale Distance Tiling & Domain Warping, authentische Himalaya-Petrologie, Multi-Bounce Schneelicht & weiche Schatten.
+* [ ] **Schritt 9 (1:1 Part V):** Geomorphologischer 1:1 Echtwelt-Abgleich: Entschärfung des über-spitzen Nadel-Looks zu massiven Monumental-Sockeln & akkurate Schnee/Fels-Balance (Hängegletscher, Firnkare, Felsband-Schneeterrassen).
+
 
 
 
