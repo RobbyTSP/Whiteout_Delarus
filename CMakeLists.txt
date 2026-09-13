@@ -78,6 +78,7 @@ set(SOURCES
     src/renderer/Renderer.cpp
     src/game/TerrainCollider.cpp
     src/game/Player.cpp
+    src/game/WeatherSystem.cpp
 )
 
 set(HEADERS
@@ -93,6 +94,7 @@ set(HEADERS
     src/renderer/Renderer.hpp
     src/game/TerrainCollider.hpp
     src/game/Player.hpp
+    src/game/WeatherSystem.hpp
 )
 
 add_executable(whiteout ${SOURCES} ${HEADERS})

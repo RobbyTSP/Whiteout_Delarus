@@ -20,7 +20,16 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    void renderFrame(const core::Camera& camera, float totalTime);
+    void renderFrame(
+        const core::Camera& camera,
+        float totalTime,
+        const glm::vec3& sunDir = glm::vec3(0.4f, 0.75f, 0.45f),
+        const glm::vec3& sunColor = glm::vec3(1.30f, 1.25f, 1.15f),
+        float cloudDensity = 0.75f,
+        float cloudBase = 4950.0f,
+        float blizzardFactor = 0.0f,
+        float windSpeed = 30.0f
+    );
     void onResize();
     bool saveScreenshot(const std::string& filepath);
 

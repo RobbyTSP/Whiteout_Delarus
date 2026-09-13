@@ -66,6 +66,9 @@ WindowEventState Window::pollEvents() {
     m_lastEvents.mouseDeltaY = 0.0f;
     m_lastEvents.toggleMode = false;
     m_lastEvents.teleportPreset = 0;
+    m_lastEvents.toggleTimeOfDay = false;
+    m_lastEvents.toggleBlizzard = false;
+    m_lastEvents.toggleLiveWeather = false;
 
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
@@ -121,6 +124,9 @@ WindowEventState Window::pollEvents() {
                     case SDLK_2: if (isDown) m_lastEvents.teleportPreset = 2; break;
                     case SDLK_3: if (isDown) m_lastEvents.teleportPreset = 3; break;
                     case SDLK_4: if (isDown) m_lastEvents.teleportPreset = 4; break;
+                    case SDLK_t: if (isDown) m_lastEvents.toggleTimeOfDay = true; break;
+                    case SDLK_b: if (isDown) m_lastEvents.toggleBlizzard = true; break;
+                    case SDLK_l: if (isDown) m_lastEvents.toggleLiveWeather = true; break;
                     default: break;
                 }
                 break;

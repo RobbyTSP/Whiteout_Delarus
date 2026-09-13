@@ -39,7 +39,7 @@ Renderer::Renderer(core::Window& window)
     std::ifstream demTest(demPath);
     if (demTest.good()) {
         demTest.close();
-        loadEverestDem(manifestPath, demPath, 2); // 512x512 subsample = 262,144 vertices
+        loadEverestDem(manifestPath, demPath, 1); // Full 1024x1024 = 1,048,576 vertices, 2,093,058 triangles!
     } else {
         generateTerrainMesh(256);
     }
@@ -384,7 +384,16 @@ void Renderer::generateTerrainMesh(uint32_t gridResolution) {
     );
 }
 
-void Renderer::renderFrame(const core::Camera& camera, float totalTime) {
+void Renderer::renderFrame(
+    const core::Camera& camera,
+    float totalTime,
+    const glm::vec3& sunDir,
+    const glm::vec3& sunColor,
+    float cloudDensity,
+    float cloudBase,
+    float blizzardFactor,
+    float windSpeed
+) {
     VkDevice device = m_context->getDevice();
 
     vkWaitForFences(device, 1, &m_inFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX);
@@ -442,11 +451,16 @@ void Renderer::renderFrame(const core::Camera& camera, float totalTime) {
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-    // Dynamic Himalayan Stratospheric Sky: Deep indigo/navy above 7000m
+    // Dynamic Himalayan Stratospheric Sky: Deep indigo/navy above 7000m, tinted by sun and blizzard
     float camAltRatio = std::clamp((camera.getPosition().y - 4500.0f) / 4348.0f, 0.0f, 1.0f);
     glm::vec3 valleySky(0.35f, 0.52f, 0.72f);
     glm::vec3 stratosphericSky(0.06f, 0.09f, 0.22f);
     glm::vec3 clearSky = glm::mix(valleySky, stratosphericSky, camAltRatio * 0.85f);
+    // Tint sky with sun illumination spectrum (e.g. Alpenglühen rose-gold/amber or moonlight)
+    clearSky = glm::mix(clearSky, clearSky * glm::normalize(sunColor + glm::vec3(0.3f)) * 1.1f, 0.40f);
+    if (blizzardFactor > 0.01f) {
+        clearSky = glm::mix(clearSky, glm::vec3(0.82f, 0.86f, 0.90f), blizzardFactor * 0.88f);
+    }
     colorAttachment.clearValue.color = {{clearSky.r, clearSky.g, clearSky.b, 1.0f}};
 
     VkRenderingAttachmentInfo depthAttachment{};
@@ -491,13 +505,13 @@ void Renderer::renderFrame(const core::Camera& camera, float totalTime) {
     pushConstants.model = glm::mat4(1.0f);
     pushConstants.view = camera.getViewMatrix();
     pushConstants.proj = camera.getProjectionMatrix();
-    pushConstants.cameraPos = glm::vec4(camera.getPosition(), 1.0f);
-    pushConstants.sunDir = glm::vec4(glm::normalize(glm::vec3(0.4f, 0.75f, 0.45f)), 0.0f);
-    pushConstants.sunColor = glm::vec4(1.25f, 1.18f, 1.05f, 1.0f);
+    pushConstants.cameraPos = glm::vec4(camera.getPosition(), cloudDensity);
+    pushConstants.sunDir = glm::vec4(glm::normalize(sunDir), windSpeed);
+    pushConstants.sunColor = glm::vec4(sunColor, blizzardFactor);
     pushConstants.time = totalTime;
     pushConstants.minElev = m_minElevation;
     pushConstants.maxElev = m_maxElevation;
-    pushConstants.padding = 0.0f;
+    pushConstants.cloudBase = cloudBase;
 
     vkCmdPushConstants(
         cmd,

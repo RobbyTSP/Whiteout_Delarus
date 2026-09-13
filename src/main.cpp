@@ -4,6 +4,7 @@
 #include "renderer/Renderer.hpp"
 #include "game/TerrainCollider.hpp"
 #include "game/Player.hpp"
+#include "game/WeatherSystem.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -13,11 +14,13 @@ int main(int argc, char* argv[]) {
     (void)argv;
 
     std::cout << "=========================================================\n";
-    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 5 (1:1 PART I)\n";
+    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 6 (1:1 PART II)\n";
     std::cout << " Rendering API: Vulkan 1.3+ / 1.4 (Dynamic Rendering)\n";
     std::cout << " Shading Language: Slang (SPIR-V)\n";
+    std::cout << " 1:1 Scale: 1,048,576 Vertices / 2,093,058 Triangles (1024x1024 DEM)\n";
     std::cout << " Geomorphology: Triplanar PBR, Couloir Fluting, Yellow Band Strata\n";
-    std::cout << " Physics: 1:1 Bilinear Terrain Collision & Alpine Footstep Physics\n";
+    std::cout << " Atmosphere: Volumetric Wolkenmeer (Valley Cloud Sea), Alpenglühen\n";
+    std::cout << " Weather: Live Open-Meteo Sync, Spindrift & Whiteout Simulation\n";
     std::cout << " Controls:\n";
     std::cout << "   - Mouse Move: Look around (Click window to capture mouse)\n";
     std::cout << "   - W / A / S / D: Walk forward / left / back / right\n";
@@ -29,6 +32,9 @@ int main(int argc, char* argv[]) {
     std::cout << "   - 2: Fast Travel -> Mount Everest Summit Ridge (8,729m)\n";
     std::cout << "   - 3: Fast Travel -> Lhotse Face / South Col (8,410m)\n";
     std::cout << "   - 4: Fast Travel -> Ama Dablam Valley (4,653m)\n";
+    std::cout << "   - T: Cycle Time of Day (Dawn Alpenglühen -> Noon -> Sunset -> Night)\n";
+    std::cout << "   - B: Toggle Blizzard / Whiteout Mode (30m Visibility & Spindrift)\n";
+    std::cout << "   - L: Toggle Live Open-Meteo Weather Synchronization\n";
     std::cout << "   - ESC: Release mouse capture / Exit\n";
     std::cout << "=========================================================\n" << std::endl;
 
@@ -56,9 +62,12 @@ int main(int argc, char* argv[]) {
         // First-person player character controller
         whiteout::game::Player player(camera, collider);
 
+        // Live Weather & Atmosphere System (Open-Meteo + Alpenglühen + Wolkenmeer)
+        whiteout::game::WeatherSystem weatherSystem(DATA_DIR "/weather/everest_current.json");
+
         whiteout::core::Timer timer;
 
-        // Check for CLI arguments: --preset <N>, --screenshot <path>, --cam <x> <y> <z> <yaw> <pitch>
+        // Check for CLI arguments: --preset <N>, --screenshot <path>, --cam <x> <y> <z> <yaw> <pitch>, --time <N>, --blizzard
         std::string screenshotPath = "";
         int initialPreset = 1;
         bool hasCustomCam = false;
@@ -67,9 +76,14 @@ int main(int argc, char* argv[]) {
 
         for (int i = 1; i < argc; i++) {
             if (std::string(argv[i]) == "--screenshot") {
-                screenshotPath = (i + 1 < argc) ? argv[i + 1] : "everest_step5.png";
+                screenshotPath = (i + 1 < argc) ? argv[i + 1] : "everest_step6.png";
             } else if (std::string(argv[i]) == "--preset" && i + 1 < argc) {
                 initialPreset = std::atoi(argv[i + 1]);
+            } else if (std::string(argv[i]) == "--time" && i + 1 < argc) {
+                int t = std::atoi(argv[i + 1]);
+                weatherSystem.setTimeOfDayPreset(static_cast<whiteout::game::TimeOfDayPreset>(t));
+            } else if (std::string(argv[i]) == "--blizzard") {
+                weatherSystem.toggleBlizzard();
             } else if (std::string(argv[i]) == "--cam" && i + 5 < argc) {
                 customCamPos.x = static_cast<float>(std::atof(argv[i + 1]));
                 customCamPos.y = static_cast<float>(std::atof(argv[i + 2]));
@@ -95,10 +109,20 @@ int main(int argc, char* argv[]) {
 
         if (!screenshotPath.empty()) {
             std::cout << "[Engine] Screenshot mode active: Rendering frame to " << screenshotPath
-                      << " (Preset " << initialPreset << " | " << player.getTelemetryString() << ")" << std::endl;
-            for (int f = 0; f < 5; f++) {
+                      << " (Preset " << initialPreset << " | " << weatherSystem.getWeatherTelemetry() << ")" << std::endl;
+            for (int f = 0; f < 8; f++) {
                 timer.tick();
-                renderer.renderFrame(camera, timer.totalTime());
+                weatherSystem.update(timer.deltaTime());
+                renderer.renderFrame(
+                    camera,
+                    timer.totalTime(),
+                    weatherSystem.getSunDirection(),
+                    weatherSystem.getSunColor(),
+                    weatherSystem.getCloudDensity(),
+                    weatherSystem.getCloudBase(),
+                    weatherSystem.getBlizzardFactor(),
+                    weatherSystem.getWindSpeed()
+                );
             }
             renderer.saveScreenshot(screenshotPath);
             std::cout << "[Engine] Screenshot successfully captured. Exiting." << std::endl;
@@ -121,11 +145,34 @@ int main(int argc, char* argv[]) {
                 window.resetResizeFlag();
             }
 
+            // Weather & atmosphere inputs
+            if (input.toggleTimeOfDay) {
+                weatherSystem.cycleTimeOfDay();
+            }
+            if (input.toggleBlizzard) {
+                weatherSystem.toggleBlizzard();
+            }
+            if (input.toggleLiveWeather) {
+                weatherSystem.toggleLiveWeather();
+            }
+
+            // Update weather simulation
+            weatherSystem.update(timer.deltaTime());
+
             // Update player physics, collision, ground snapping, and camera
             player.update(timer.deltaTime(), input);
 
-            // Render frame using Vulkan 1.3+ Dynamic Rendering & Slang shader
-            renderer.renderFrame(camera, timer.totalTime());
+            // Render frame using Vulkan 1.4 Dynamic Rendering & Slang shader with full atmosphere
+            renderer.renderFrame(
+                camera,
+                timer.totalTime(),
+                weatherSystem.getSunDirection(),
+                weatherSystem.getSunColor(),
+                weatherSystem.getCloudDensity(),
+                weatherSystem.getCloudBase(),
+                weatherSystem.getBlizzardFactor(),
+                weatherSystem.getWindSpeed()
+            );
 
             // Realtime HUD & Telemetry in window title
             titleUpdateTimer += timer.deltaTime();
@@ -134,7 +181,8 @@ int main(int argc, char* argv[]) {
                 std::stringstream title;
                 title << "Whiteout Delarus | "
                       << std::fixed << std::setprecision(0) << timer.currentFps() << " FPS | "
-                      << player.getTelemetryString();
+                      << player.getTelemetryString() << " | "
+                      << weatherSystem.getWeatherTelemetry();
 
                 SDL_SetWindowTitle(window.getNativeHandle(), title.str().c_str());
             }

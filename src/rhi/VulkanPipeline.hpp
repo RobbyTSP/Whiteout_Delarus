@@ -19,16 +19,16 @@ struct Vertex {
 };
 
 struct TerrainPushConstants {
-    glm::mat4 model;
-    glm::mat4 view;
-    glm::mat4 proj;
-    glm::vec4 cameraPos;
-    glm::vec4 sunDir;
-    glm::vec4 sunColor;
-    float time;
-    float minElev;
-    float maxElev;
-    float padding;
+    glm::mat4 model;      // 64 bytes
+    glm::mat4 view;       // 64 bytes
+    glm::mat4 proj;       // 64 bytes
+    glm::vec4 cameraPos;  // 16 bytes: xyz = camera world position, w = cloudDensity (0..1)
+    glm::vec4 sunDir;     // 16 bytes: xyz = sun direction, w = windSpeed (km/h)
+    glm::vec4 sunColor;   // 16 bytes: rgb = sun irradiance spectrum, w = blizzardFactor (0..1)
+    float time;           // 4 bytes: elapsed time
+    float minElev;        // 4 bytes: minimum elevation (3651m)
+    float maxElev;        // 4 bytes: maximum elevation (8753m)
+    float cloudBase;      // 4 bytes: Wolkenmeer sea of clouds base elevation (~4900m)
 };
 
 class VulkanPipeline {

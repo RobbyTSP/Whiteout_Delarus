@@ -25,6 +25,9 @@ struct WindowEventState {
     bool crouch = false;
     bool toggleMode = false;
     int teleportPreset = 0; // 1 = Base Camp, 2 = Summit, 3 = Lhotse, 4 = Ama Dablam
+    bool toggleTimeOfDay = false;
+    bool toggleBlizzard = false;
+    bool toggleLiveWeather = false;
 
     // Mouse state
     bool rightMouseDown = false;

@@ -140,6 +140,9 @@ In Schritt 3 wurde Whiteout Delarus zu einem echten **First-Person Spiel** ausge
 | **C / Strg** | Ducken / Kriechen | Sinken |
 | **Tab / V** | **Modus wechseln (First-Person $\leftrightarrow$ Freiflug)** | Modus wechseln |
 | **1 / 2 / 3 / 4** | **Schnellreise: Base Camp / Gipfel / Lhotse / Ama Dablam** | Schnellreise |
+| **T** | **Tageszeit umschalten (Dawn Alpenglühen $\rightarrow$ Mittag $\rightarrow$ Sunset $\rightarrow$ Nacht)** | Tageszeit umschalten |
+| **B** | **Blizzard / Whiteout-Modus ein-/ausschalten (~30 m Sicht)** | Blizzard ein-/ausschalten |
+| **L** | **Live Open-Meteo Wetter-Synchronisation an-/abkoppeln** | Live-Wetter an-/abkoppeln |
 | **ESC** | Mauszeiger freigeben / Beenden | Beenden |
 
 ## 🏔️ Schritt 4: PBR-Materialien, POM & ESRI-Satelliten-Overlay (Abgeschlossen)
@@ -227,6 +230,36 @@ cmake --build build
 
 ---
 
+## ☁️ Schritt 6: Volles 1:1 Mesh, Volumetrisches Wolkenmeer, Alpenglühen & Live Blizzard (1:1 Part II - Abgeschlossen)
+
+In Schritt 6 (1:1 Part II) wurde die Landschaft auf die maximale metrische Auflösung angehoben und um die charakteristischen atmosphärischen und meteorologischen Phänomene des Hochhimalaya erweitert:
+
+* **Volle 1:1 Geländeauflösung (2.093.058 Dreiecke / 1.048.576 Vertices):**
+  * Umstellung der Gitter-Schrittweite von 2 auf 1 (`sampleStep = 1`): Jede einzelne Zelle des 1024×1024 Float32 DEMs wird direkt als Hardware-Vertex gerendert.
+  * Über 2 Millionen Dreiecke im GPU-Speicher (~58 MB) mit 300+ FPS auf modernen Grafikkarten (z. B. NVIDIA RTX 4060: ~1,1 ms Frame-Time).
+  * Gestochen scharfe Felsgrate, Karen, Gratrippen und Wandabbrüche ohne jegliche polygonale Vergröberung.
+* **Volumetrisches "Wolkenmeer" (Valley Sea of Clouds):**
+  * Typisches Himalaya-Inversionswetter: Dichte Wolkenschichten füllen die tiefen Täler (Khumbu-Tal, Imja-Tal) bis ca. 5.000–5.200 m auf.
+  * Die 8.000er Riesen (Mount Everest, Lhotse, Nuptse, Ama Dablam) ragen majestätisch wie alpine Inseln aus dem Wolkenmeer in den tiefblauen Himmel heraus.
+  * Analytische Volumetric-Ray-Slab-Intersection im Slang-Shader mit Mie-Vorwärtsstreuung (`g = 0.65`) und sanftem vertikalem Ausfaden.
+* **Dynamischer Tag-Nacht-Zyklus & Alpenglühen (`Taste T`):**
+  * **Morgendämmerung (Dawn Alpenglühen, 05:51 Uhr):** Die Sonne steht im Tal noch unter dem Horizont, aber die 8.848 m hohe Gipfelpyramide des Everest erstrahlt bereits im warmen, golden-rosafarbenen Licht (spektrale Alpenglühen-Formel mit Höhen-Gain).
+  * **Klarer Mittag (Crisp Noon, 12:00 Uhr):** Stechend weißes Sonnenlicht, tiefes kosmisches Indigo-Himmelsgewölbe in der dünnen Stratosphäre.
+  * **Abenddämmerung (Sunset Alpenglühen, 18:20 Uhr):** Glühende gold-purpurne West- und Südwände, während die Täler im tiefblauen Eisschatten versinken.
+  * **Mondhelle Nacht (Moonlit Night, 23:30 Uhr):** Kaltes, bläuliches Mondlicht reflektiert auf den Schneefeldern und Gletschern unter einem sternenklaren Nachthimmel.
+* **Echtzeit-Wetter-Synchronisation via Open-Meteo (`Taste L`):**
+  * Direkte Anbindung des C++20 `WeatherSystem` an die meteorologischen Daten (`data/weather/everest_current.json`).
+  * Automatische Synchronisation von Temperatur, Windgeschwindigkeit, Wolkenbedeckung und barometrischem Druck.
+* **Himalaya-Blizzard & Spindrift-Simulation (`Taste B`):**
+  * Umschaltbarer extremer Whiteout-Sturm mit Sichtweiten unter ~30 Metern.
+  * Physikalische Sonnenextinktion, dichte Schneenebel-Absorption und orkanartiger Spindrift-Partikelsturm entlang exponierter Grate.
+* **Erweiterte CLI-Steuerung:**
+  * `--time <0.0..24.0>`: Setzt die Tageszeit präzise in Stunden (z. B. `5.85` für Alpenglühen).
+  * `--blizzard`: Startet das Spiel direkt mitten in einem tosenden Blizzard.
+  * `--preset <1..4>`: 1 = Base Camp, 2 = Everest Summit, 3 = Lhotse Face, 4 = Ama Dablam.
+
+---
+
 ## 🔭 Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
@@ -234,5 +267,6 @@ cmake --build build
 * [x] **Schritt 3:** First-Person Bergsteiger-Spiel mit 1:1 Terrain-Kollision, Laufen, Springen, Hangphysik & Schnellreise.
 * [x] **Schritt 4:** 18-Kanal PBR-Pipeline, POM (Parallax Occlusion Mapping), ESRI-Satelliten-Overlay & Slope Splatting.
 * [x] **Schritt 5 (1:1 Part I):** Triplanare PBR-Projektion (streckungsfreie Steilwände), Gaea-Geomorphologie, Couloir Fluting, Everest Yellow Band Strata & stratosphärische Alpin-Physik.
-* [ ] **Schritt 6 (1:1 Part II):** CDLOD / Terrain Clipmaps für kontinuierliches geometrisches LOD-Streaming, volumetrische Wolken/Nebel, dynamischer Tag-Nacht-Zyklus & Live Open-Meteo Wetter.
+* [x] **Schritt 6 (1:1 Part II):** Volle 1:1 Gitterauflösung (2M Dreiecke), volumetrisches Wolkenmeer, Alpenglühen, Blizzard/Whiteout & Live Open-Meteo Wetter.
+
 

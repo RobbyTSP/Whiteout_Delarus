@@ -5,13 +5,13 @@ struct PushConstants {
     float4x4 model;
     float4x4 view;
     float4x4 proj;
-    float4 cameraPos;
-    float4 sunDir;      // Direction towards sun (normalized)
-    float4 sunColor;    // Sun intensity & spectrum
+    float4 cameraPos;   // xyz = camera world pos, w = cloudDensity (0..1)
+    float4 sunDir;      // xyz = normalized sun direction, w = windSpeed (km/h)
+    float4 sunColor;    // rgb = sun irradiance spectrum, w = blizzardFactor (0..1)
     float time;
     float minElev;      // 3651.0m
     float maxElev;      // 8753.0m
-    float padding;
+    float cloudBase;    // Wolkenmeer cloud base elevation (~4900m)
 };
 
 [[vk::push_constant]]
@@ -286,7 +286,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     // 7. Stratospheric Himalayan Atmospheric Lighting & Solar Irradiance
     float NdotL = max(dot(finalNormal, L), 0.0);
-    float3 directLight = NdotL * pc.sunColor.rgb;
+    
+    // Alpenglühen: High summits catch sunrise first while deep valleys are still in mountain shadow
+    float dawnSummitBoost = clamp((input.worldPos.y - 4500.0) / 4200.0, 0.0, 1.0);
+    float earthShadow = clamp(L.y * 14.0 + dawnSummitBoost * 0.70, 0.0, 1.0);
+    float3 directLight = NdotL * pc.sunColor.rgb * earthShadow;
 
     // Stratospheric Sky Model: Above 6500m, atmospheric pressure is ~1/3 sea-level.
     // The overhead sky darkens from azure into deep dark indigo/navy with stark solar contrast.
@@ -304,19 +308,78 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     
     // Snow glitter sparkle from microfacet grain
     float sparkle = pow(max(dot(reflect(-L, finalNormal), V), 0.0), 128.0) * snowWeight * 0.45;
-    float specular = pow(NdotH, specPower) * specIntensity * NdotL + sparkle;
+    float specular = pow(NdotH, specPower) * specIntensity * NdotL * earthShadow + sparkle;
 
     // Fresnel sheen at glancing angles (ice reflection & snow rim light)
     float fresnel = pow(1.0 - max(dot(V, finalNormal), 0.0), 5.0) * (snowWeight * 0.35 + glacierWeight * 0.65);
 
     float3 litColor = compositeAlbedo * (directLight + skyLight) + float3(specular + fresnel, specular + fresnel, specular + fresnel);
 
-    // 8. Altitude-Aware Himalayan Rayleigh Scattering / Aerial Distance Fog
+    // 8. Volumetric Valley Cloud Sea (Wolkenmeer):
+    // Dense cloud ocean blankets the valleys below 5400m, while the 8000m giants pierce the clouds!
+    float cloudDensitySetting = pc.cameraPos.w;
+    if (cloudDensitySetting > 0.05) {
+        float cloudDeckBottom = pc.cloudBase - 250.0;
+        float cloudDeckTop = pc.cloudBase + 600.0;
+
+        float3 rayDir = normalize(input.worldPos - pc.cameraPos.xyz);
+        float rayDist = distToCam;
+
+        // Slab intersection
+        float invRayY = 1.0 / (abs(rayDir.y) > 0.0001 ? rayDir.y : 0.0001);
+        float t1 = (cloudDeckBottom - pc.cameraPos.y) * invRayY;
+        float t2 = (cloudDeckTop - pc.cameraPos.y) * invRayY;
+        float tMin = max(0.0, min(t1, t2));
+        float tMax = min(rayDist, max(t1, t2));
+
+        if (tMin < tMax) {
+            float slabThickness = tMax - tMin;
+            float3 cloudCenterPos = pc.cameraPos.xyz + rayDir * (tMin + slabThickness * 0.5);
+            float2 cloudDrift = float2(pc.time * 6.0, pc.time * 2.5);
+            float cloudWave = sin((cloudCenterPos.x + cloudDrift.x) * 0.00045) * 
+                              cos((cloudCenterPos.z + cloudDrift.y) * 0.00045) * 0.5 + 0.5;
+
+            float midElevation = (cloudDeckBottom + cloudDeckTop) * 0.5;
+            float vertProfile = clamp(1.0 - abs(cloudCenterPos.y - midElevation) / (cloudDeckTop - cloudDeckBottom), 0.0, 1.0);
+            float localCloudDensity = smoothstep(0.18, 0.65, cloudWave * vertProfile) * cloudDensitySetting;
+
+            float opticalDepth = localCloudDensity * clamp(slabThickness * 0.0018, 0.0, 4.0);
+            float cloudTransmittance = exp(-opticalDepth);
+
+            // Forward Mie Scattering phase function for luminous cloud tops
+            float cosTheta = dot(rayDir, L);
+            float phaseMie = 0.5 * (1.0 + cosTheta * cosTheta) / pow(1.0 + 0.55 * 0.55 - 2.0 * 0.55 * cosTheta, 1.5);
+            float3 sunlitCloud = pc.sunColor.rgb * (0.85 + 0.40 * phaseMie);
+            float3 ambientCloud = lerp(float3(0.18, 0.22, 0.32), float3(0.55, 0.65, 0.82), skyHemisphere);
+            float3 cloudColor = sunlitCloud + ambientCloud;
+
+            litColor = lerp(cloudColor, litColor, cloudTransmittance);
+        }
+    }
+
+    // 9. Altitude-Aware Himalayan Rayleigh Scattering / Distance Fog
     float fogDensity = lerp(0.000030, 0.000015, altRatio);
     float fogFactor = 1.0 - exp(-distToCam * fogDensity);
     float3 fogColor = lerp(float3(0.55, 0.68, 0.84), float3(0.28, 0.38, 0.58), altRatio);
-
     float3 finalColor = lerp(litColor, fogColor, clamp(fogFactor, 0.0, 0.80));
+
+    // 10. Blizzard, Spindrift & Whiteout Storm Simulation
+    float blizzard = pc.sunColor.w;
+    if (blizzard > 0.01) {
+        // Spindrift blown off ridge crests and sharp peaks
+        float2 stormCoord = input.worldPos.xz * 0.08 + float2(pc.time * 55.0, pc.time * 25.0);
+        float spindriftNoise = sin(stormCoord.x) * cos(stormCoord.y) * 0.5 + 0.5;
+        float ridgeExposure = geomMorph.b * 1.5 + (1.0 - N.y) * 0.8;
+        float spindriftPlume = pow(spindriftNoise, 3.0) * ridgeExposure * blizzard * 0.40;
+
+        // Severe whiteout visibility collapse (30m survival conditions)
+        float stormFogDensity = lerp(fogDensity, 0.00035, blizzard);
+        float stormFogFactor = 1.0 - exp(-distToCam * stormFogDensity);
+        float3 stormFogColor = float3(0.85, 0.88, 0.92);
+
+        finalColor = lerp(finalColor, stormFogColor, clamp(stormFogFactor * (1.0 + blizzard * 4.5), 0.0, 0.96)) + 
+                     float3(spindriftPlume, spindriftPlume, spindriftPlume);
+    }
 
     return float4(finalColor, 1.0);
 }
