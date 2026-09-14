@@ -144,7 +144,7 @@ VulkanPipeline::VulkanPipeline(
         samplerBindings[i].descriptorCount = 1;
         samplerBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         samplerBindings[i].pImmutableSamplers = nullptr;
-        samplerBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        samplerBindings[i].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     }
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};

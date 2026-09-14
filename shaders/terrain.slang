@@ -73,8 +73,44 @@ struct VertexOutput {
 VertexOutput vertexMain(VertexInput input) {
     VertexOutput output;
     float4 worldPos = mul(pc.model, float4(input.position, 1.0));
+    float3 normal = normalize(mul((float3x3)pc.model, input.normal));
+
+    // Step 9.1: GPU-Tessellation / Virtual Heightfield (Detail-Displacement on Vertex Level)
+    // Breaks up the 33.8-meter polygon raster edges into fine, rugged alpine rock crags and couloir terraces!
+    float distToCam = length(pc.cameraPos.xyz - worldPos.xyz);
+    // Player clearance: preserve ground collision within 4m of player camera stance, full effect from 9m to 1000m
+    float nearClearance = smoothstep(3.5, 9.0, distToCam);
+    float dispFade = smoothstep(1200.0, 80.0, distToCam) * nearClearance;
+
+    if (dispFade > 0.001) {
+        float2 wp = worldPos.xz;
+        // Multi-octave domain-warped FBM micro-fracturing noise
+        float n1 = sin(wp.x * 0.18 + cos(wp.y * 0.14) * 2.2);
+        float n2 = cos(wp.y * 0.22 + sin(wp.x * 0.16) * 1.9);
+        float n3 = sin(wp.x * 0.44 + wp.y * 0.38) * cos(wp.y * 0.52);
+        float fbmNoise = (n1 * 0.55 + n2 * 0.30 + n3 * 0.15);
+
+        // Geomorphology guide: lift sharp ridges and deepen avalanche couloirs
+        float4 morph = texGeomorphology.SampleLevel(input.uv, 0.0);
+        float couloirTrough = morph.r;
+        float ridgeCrest = morph.b;
+
+        // Slope factor: steeper slopes receive rugged horizontal crag fracturing
+        float slopeFactor = 1.0 - clamp(normal.y, 0.0, 1.0);
+        float2 horizNorm = normalize(normal.xz + float2(0.0001, 0.0001));
+        float3 horizDisplace = float3(horizNorm.x, 0.0, horizNorm.y) * (fbmNoise * slopeFactor * 2.8);
+        float vertDisplace = (fbmNoise * 0.35 + (ridgeCrest * 1.6 - couloirTrough * 1.2)) * slopeFactor;
+
+        float3 dispVector = (horizDisplace + float3(0.0, vertDisplace, 0.0)) * dispFade;
+        worldPos.xyz += dispVector;
+
+        // Perturb vertex normal slightly to break up linear triangle lighting
+        float3 bumpN = float3(-n1 * 0.22, 0.95, -n2 * 0.22);
+        normal = normalize(normal + bumpN * (dispFade * slopeFactor * 0.35));
+    }
+
     output.worldPos = worldPos.xyz;
-    output.worldNormal = normalize(mul((float3x3)pc.model, input.normal));
+    output.worldNormal = normal;
     output.uv = input.uv;
     output.sv_position = mul(pc.proj, mul(pc.view, worldPos));
     return output;
@@ -263,7 +299,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     // Map normal map channels to 3D world space: R = X (East/West), G = Z (North/South), B = Y (Up)
     float3 macroNormalWorld = float3(macroNormSample.r, macroNormSample.b, macroNormSample.g);
-    float3 N = normalize(geomN + macroNormalWorld * 0.45);
+
+    // Step 9.1: Multi-Scale Sobel Normal Map Blending with Slope Sensitivity
+    // Brings out deep, dramatic shadows in couloirs, fissures, and cliff steps without eating extra polygons
+    float geomSlopeDeg = degrees(acos(clamp(geomN.y, 0.0, 1.0)));
+    float sobelStrength = lerp(0.55, 0.85, smoothstep(22.0, 52.0, geomSlopeDeg));
+    float3 N = normalize(geomN + macroNormalWorld * sobelStrength);
 
     // 2. Geomorphological 1:1 Echtwelt-Abgleich (Real-World Snow & Rock Distribution)
     // Accurate physical slope angle in degrees
@@ -287,10 +328,14 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // High-Altitude Permanent Snowline (~5,400m in Khumbu/Everest)
     float aboveSnowline = smoothstep(5100.0, 5700.0, elev);
 
-    // Wind-Scour on Knife-Edge Arêtes & Jetstream Zone (>8,500m)
-    // Jetstream winds (>150 km/h) blow snow off the windward summit pyramid
+    // Step 9.1: Ground-Truth Geological Elevation Strata & Jetstream Wind Scour
+    // Absolute altitude control:
+    // > 8.600 m: Qomolangma-Kalkstein (dunkelgrau/schwarz, fast kein Schnee wegen Wind)
+    // 8.200 m – 8.600 m: Das berühmte Yellow Band (heller, ocker-gelblicher Dolomit-Streifen)
+    // Unter 8.200 m: Dunkler Gneis/Granit der tibetischen Zone & North Col Formation
     float ridgeExposure = geomMorph.b;
-    float jetStreamBlowOff = smoothstep(8480.0, 8760.0, elev) * 0.70;
+    float windScourSummit = smoothstep(8580.0, 8660.0, elev);
+    float jetStreamBlowOff = windScourSummit * 0.95;
     float windScouredRidge = ridgeExposure * smoothstep(0.35, 0.90, elevNorm) * 0.55 + jetStreamBlowOff;
 
     // Couloir & Chute Fluting: in carved avalanche chute troughs, firn snow clings down steep slopes up to 60°
@@ -307,6 +352,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // 2. Snow Weight: All high-altitude terrain below cliff angle + couloirs + satellite snow
     float alpineSnow = clamp(snowAdhesionSlope * (0.65 + 0.35 * aboveSnowline) + couloirSnowCling, 0.0, 1.0);
     float snowWeight = clamp(lerp(alpineSnow, 1.0, satSnowPresence * 0.75 * (1.0 - cliffRockSlope * 0.85)), 0.0, 1.0) * (1.0 - rockWeight * 0.88);
+
+    // Above 8,600m on the summit pyramid, hurricane jetstream winds blow snow off all exposed slopes (>10°),
+    // leaving the dark Qomolangma limestone dramatically exposed
+    float summitSnowRetain = 1.0 - windScourSummit * smoothstep(8.0, 22.0, slopeDeg) * 0.96;
+    snowWeight *= summitSnowRetain;
+    rockWeight = clamp(rockWeight + windScourSummit * smoothstep(10.0, 25.0, slopeDeg) * 0.70, 0.0, 1.0);
 
     // 3. Glacier Ice: Khumbu Valley glacier tongue (4,700m - 5,450m on gentle valley floors)
     float glacierElev = smoothstep(4650.0, 4950.0, elev) * (1.0 - smoothstep(5350.0, 5550.0, elev));
@@ -368,18 +419,18 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     if (strataH < 8200.0) {
         // Base to 8,200m: North Col Formation & Tibetan Crystalline (dark grey schist, gneiss, granite)
-        float metaBand = sin(strataH * 0.08) * 0.04 * clamp(1.0 - distToCam / 600.0, 0.0, 1.0);
-        strataTint = float3(0.86 + metaBand, 0.88 + metaBand, 0.92);
+        float metaBand = sin(strataH * 0.08) * 0.04 * clamp(1.0 - distToCam / 700.0, 0.0, 1.0);
+        strataTint = float3(0.82 + metaBand, 0.85 + metaBand, 0.89);
     }
     else if (strataH >= 8200.0 && strataH < 8600.0) {
-        // 8,200m - 8,600m: The Yellow Band (pale buff / golden-cream dolomitic marble)
-        float yellowRhythm = (sin(strataH * 0.12) * 0.08) * clamp(1.0 - distToCam / 500.0, 0.0, 1.0);
-        strataTint = lerp(float3(1.30, 1.22, 0.92), float3(1.20, 1.12, 0.84), yellowRhythm + 0.5);
+        // 8,200m – 8,600m: The Yellow Band (Das berühmte Gelbe Band aus dolomitischem Marmor)
+        float yellowRhythm = (sin(strataH * 0.12) * 0.09) * clamp(1.0 - distToCam / 600.0, 0.0, 1.0);
+        strataTint = lerp(float3(1.36, 1.26, 0.86), float3(1.22, 1.14, 0.78), yellowRhythm + 0.5);
     }
     else {
-        // > 8,600m: Qomolangma Formation (dark grey/black Ordovician limestone of the summit pyramid)
-        float summitGrain = sin(strataH * 0.15) * 0.03 * clamp(1.0 - distToCam / 400.0, 0.0, 1.0);
-        strataTint = float3(0.72 + summitGrain, 0.74 + summitGrain, 0.78);
+        // > 8,600m: Qomolangma Formation (dunkelgrauer bis fast schwarzer Ordovizium-Kalkstein)
+        float summitGrain = sin(strataH * 0.16) * 0.03 * clamp(1.0 - distToCam / 500.0, 0.0, 1.0);
+        strataTint = float3(0.52 + summitGrain, 0.54 + summitGrain, 0.58);
     }
 
     triplanarRockAlbedo = clamp(coldRockAlbedo * strataTint, 0.0, 1.0);

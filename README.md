@@ -381,27 +381,32 @@ In Schritt 9 (1:1 Part V) wurden die Gebirgsformen und die Materialverteilung de
 
 ---
 
-## 🏔️ Schritt 9.1: GPU-Tessellation / Virtual Heightfield, Normal-Baking & Geologisches Höhen-Banding (Geplant)
+## 🏔️ Schritt 9.1: GPU-Tessellation / Virtual Heightfield, Multi-Scale Sobel Normal-Baking & Geologisches Höhen-Banding (1:1 Part VI - Abgeschlossen)
 
-Zur perfekten Beseitigung jeglicher verbleibender Polygonknicke und zur fotorealistischen Verankerung der realen Himalaya-Geologie:
+In Schritt 9.1 (1:1 Part VI) wurden die verbliebenen geraden 33,8 m Rasterkanten auf Vertex-Ebene mikroskopisch aufgebrochen, die Tiefenwirkung von Felswänden und Couloirs über einen 2D-Multi-Scale-Sobel-Operator potenziert und die reale geologische Schichtung des Mount Everest exakt verankert:
 
-### 1. GPU-Tessellation / Virtual Heightfield (Detail-Displacement)
-* **Ziel:** Aufbrechen der 33,8-Meter-Rasterkanten der Höhendaten in mikro-zerklüftete Felsstrukturen.
-* **Methode:**
-  * Dynamische Tessellation im Terrain-Shader oder adaptives Displacement auf Vertex-Ebene gesteuert durch hochfrequente Noise- und Gesteins-Detailmaps.
-  * Verhindert flache Dreiecksübergänge und "geknickte" Kanten an Bergkämmen vollständig; Felsgrate und Steilflanken erhalten eine organische, fließende und hochdetaillierte Silhouette wie im realen Gebirge.
+### 1. GPU Virtual Heightfield (Detail-Displacement auf Vertex-Ebene) ([`shaders/terrain.slang`](shaders/terrain.slang))
+* **Aufbrechen der 33,8 m Rasterkanten:**
+  * Im Slang Vertex Shader (`vertexMain`) bricht ein mehrstufiges, domänenverzerrtes FBM-Mikrofraktursystem (`fbmNoise`) in Kombination mit der Geomorphologie-Textur (`texGeomorphology`) die geraden Dreieckskanten der Höhendaten dynamisch auf.
+  * Steile Felswände erhalten horizontale Felsgesimse und Klüfte (bis zu $\pm 2,8\,\text{m}$ horizontales Displacement), während Kämme angehoben und Rinnen vertieft werden.
+  * **Player Clearance Protection:** Über eine Abstandsmaske (`nearClearance = smoothstep(3.5, 9.0, distToCam)`) blendet das Displacement in unmittelbarer Spielernähe (< 3,5 m) sanft auf 0 ab. Dadurch bleibt die 1:1 Bodenkollision ([`src/game/TerrainCollider.h`](src/game/TerrainCollider.h)) exakt bündig und die First-Person-Kamera versinkt zu keinem Zeitpunkt im Boden, während die Umgebung ab 9 m bis 1.200 m maximale Plastizität entfaltet.
+  * **Vulkan Descriptor Layout:** In [`src/rhi/VulkanPipeline.cpp`](src/rhi/VulkanPipeline.cpp) wurden die Shader-Stage-Flags aller 19 Textur-Sampler von `VK_SHADER_STAGE_FRAGMENT_BIT` auf `VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT` erweitert.
 
-### 2. Normal-Map aus Höhendaten backen (Sobel-Filter)
-* **Ziel:** Maximale plastische Tiefenwirkung in Felsrinnen und Steilwänden ohne zusätzliche Geometrielast.
-* **Methode:**
-  * Berechnung einer hochpräzisen World-Space- / Tangent-Space-Normal-Map direkt aus den finalen Höhendaten mittels Sobel-Operator.
-  * Tiefe Erosionsrinnen, Wandabbrüche und Klüfte werfen physikalisch akkurate Mikroschatten, die dem Bergmassiv auch aus großer Entfernung monumentale Tiefe und Schärfe verleihen.
+### 2. Multi-Scale Sobel-Feldman Normal Map Baking ([`scripts/sculpt_himalayas.py`](scripts/sculpt_himalayas.py), [`scripts/process_terrain.py`](scripts/process_terrain.py))
+* **True 2D Sobel-Feldman Gradienten:**
+  * Die einfache zentrale Differenzierung (`np.gradient`) wurde durch einen echten 2D-Sobel-Feldman-Operator mit Faltungskernen ersetzt:
+    * **Radius 1 (34 m):** Höchste Frequenz zur Hervorhebung scharfer Felskanten und Mikrostrukturen.
+    * **Radius 2 (68 m):** Mittlere Frequenz zur Stabilisierung monumentaler Wandflanken und Großreliefs.
+  * Das kombinierte Normalfeld wurde in [`data/processed/everest_normal_map.png`](data/processed/everest_normal_map.png) gebacken.
+* **Neigungsadaptive Sobel-Mischung im Fragment-Shader:**
+  * In Steilwänden (> 22°–52°) wird die Sobel-Normal-Intensität dynamisch auf bis zu 0,85 verstärkt (`lerp(0.55, 0.85, ...)`), was Felsrinnen und Steilabbrüche mit tiefen, plastischen Kontrastschatten füllt – völlig ohne zusätzliche Geometrielast.
 
-### 3. Exaktes Geologisches Höhen-Banding im Fragment-Shader
-* **Absolute Höhensteuerung pro Vertex / Fragment:**
-  * **> 8.600 m (Qomolangma-Formation):** Dunkelgrauer bis fast schwarzer mikritischer Kalkstein der Gipfelpyramide. Nahezu schneefrei, da orkanartige Jetstream-Winde den Schnee unmittelbar in die Tiefe reißen.
-  * **8.200 m – 8.600 m (The Yellow Band):** Das weltberühmte, weithin sichtbare "Gelbe Band" aus hellem, ocker-gelblichem dolomitischem Marmor und Kalksedimenten.
-  * **< 8.200 m (North Col Formation & Tibetische Zone):** Dunkler Gneis, phyllitischer Schiefer und Granit des Sockels, physikalisch abgemischt mit Steilwand-Fels-Shadern und Schuttkegeln.
+### 3. Geologisches Höhen-Banding & Jetstream Wind-Scour ([`shaders/terrain.slang`](shaders/terrain.slang))
+* **Wissenschaftlich akkurate Himalaya-Schichtung nach absoluter Geländehöhe:**
+  * **> 8.600 m (Qomolangma-Formation):** Dunkelgrauer bis anthrazit-schwarzer mikritischer Kalkstein der Gipfelpyramide (`strataTint = float3(0.52, 0.54, 0.58)`).
+    * **Jetstream Wind-Scour:** Orkanartige Winde (> 150 km/h) blasen den Schnee an allen Hängen ab 8.600 m und Neigungen über 10° physikalisch ab (`windScourSummit * smoothstep(8.0, 22.0, slopeDeg)`), wodurch der schwarze Kalkstein der Gipfelpyramide dramatisch exponiert wird.
+  * **8.200 m – 8.600 m (The Yellow Band):** Das markante, ocker-goldgelbliche Band aus dolomitischem Marmor (`strataTint = float3(1.36, 1.26, 0.86)`), durchzogen von feinen rhythmischen Sedimentbändern (`yellowRhythm`).
+  * **< 8.200 m (North Col Formation & Kristalliner Sockel):** Kaltgrauer Gneis, phyllitischer Schiefer und Granit (`strataTint = float3(0.82, 0.85, 0.89)`).
 
 ---
 
@@ -416,7 +421,7 @@ Zur perfekten Beseitigung jeglicher verbleibender Polygonknicke und zur fotoreal
 * [x] **Schritt 7 (1:1 Part III):** Alpines Grat-Sculpting (Multi-Scale Discrete Curvature), hydraulische Couloirs, thermische Schuttkegel, Dual-Frequency Anti-Tiling, Horizon AO & ACES Tone Mapping.
 * [x] **Schritt 8 (1:1 Part IV):** Fotorealismus-Feinschliff: Beseitigung von Wabenmuster/Kachelung durch Multi-Scale Distance Tiling & Domain Warping, authentische Himalaya-Petrologie, Multi-Bounce Schneelicht & weiche Schatten.
 * [x] **Schritt 9 (1:1 Part V):** Geomorphologischer 1:1 Echtwelt-Abgleich: Entschärfung des über-spitzen Nadel-Looks zu massiven Monumental-Sockeln & akkurate Schnee/Fels-Balance (Hängegletscher, Firnkare, Felsband-Schneeterrassen).
-* [ ] **Schritt 9.1:** GPU-Tessellation / Virtual Heightfield (Auflösung der 33,8 m Kanten via Detail-Displacement), Sobel-Normal-Baking & Geologisches Höhen-Banding (>8.600m Qomolangma, 8.200m–8.600m Yellow Band, <8.200m Gneis/Granit).
+* [x] **Schritt 9.1 (1:1 Part VI):** GPU-Tessellation / Virtual Heightfield (Auflösung der 33,8 m Kanten via Detail-Displacement), Multi-Scale Sobel-Normal-Baking & Geologisches Höhen-Banding (>8.600m Qomolangma mit Jetstream Wind-Scour, 8.200m–8.600m Yellow Band, <8.200m Gneis/Granit).
 
 
 

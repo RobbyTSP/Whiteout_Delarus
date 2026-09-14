@@ -29,15 +29,45 @@ def decode_terrarium_elevation(rgb_arr):
 
 def compute_normal_map(elevation_grid, cell_size_x, cell_size_y):
     """
-    Computes tangent/world-space normal map from elevation gradients.
+    Computes high-resolution tangent/world-space normal map using a 2D multi-scale Sobel-Feldman operator.
     Normals are encoded as RGB [0..255] where (128, 128, 255) is flat pointing upwards.
     """
-    # Central differences for gradients
-    dy, dx = np.gradient(elevation_grid, cell_size_y, cell_size_x)
+    h = elevation_grid
+    dx = cell_size_x
+    dy = cell_size_y
     
-    # Normal vector = normalize(-dx, -dy, 1.0)
-    nx = -dx
-    ny = -dy
+    # Radius 1 Sobel-Feldman kernel (fine couloir & arête details)
+    h_n  = np.roll(h, -1, axis=0)
+    h_s  = np.roll(h, 1, axis=0)
+    h_e  = np.roll(h, -1, axis=1)
+    h_w  = np.roll(h, 1, axis=1)
+    h_ne = np.roll(np.roll(h, -1, axis=0), -1, axis=1)
+    h_nw = np.roll(np.roll(h, -1, axis=0), 1, axis=1)
+    h_se = np.roll(np.roll(h, 1, axis=0), -1, axis=1)
+    h_sw = np.roll(np.roll(h, 1, axis=0), 1, axis=1)
+    
+    gx1 = ((h_ne + 2.0 * h_e + h_se) - (h_nw + 2.0 * h_w + h_sw)) / (8.0 * dx)
+    gy1 = ((h_se + 2.0 * h_s + h_sw) - (h_ne + 2.0 * h_n + h_nw)) / (8.0 * dy)
+    
+    # Radius 2 Sobel-Feldman kernel (broad massif relief)
+    h_n2  = np.roll(h, -2, axis=0)
+    h_s2  = np.roll(h, 2, axis=0)
+    h_e2  = np.roll(h, -2, axis=1)
+    h_w2  = np.roll(h, 2, axis=1)
+    h_ne2 = np.roll(np.roll(h, -2, axis=0), -2, axis=1)
+    h_nw2 = np.roll(np.roll(h, -2, axis=0), 2, axis=1)
+    h_se2 = np.roll(np.roll(h, 2, axis=0), -2, axis=1)
+    h_sw2 = np.roll(np.roll(h, 2, axis=0), 2, axis=1)
+    
+    gx2 = ((h_ne2 + 2.0 * h_e2 + h_se2) - (h_nw2 + 2.0 * h_w2 + h_sw2)) / (16.0 * dx)
+    gy2 = ((h_se2 + 2.0 * h_s2 + h_sw2) - (h_ne2 + 2.0 * h_n2 + h_nw2)) / (16.0 * dy)
+    
+    gx = 0.75 * gx1 + 0.25 * gx2
+    gy = 0.75 * gy1 + 0.25 * gy2
+    
+    # Normal vector = normalize(-gx, -gy, 1.0)
+    nx = -gx
+    ny = -gy
     nz = np.ones_like(elevation_grid)
     
     length = np.sqrt(nx * nx + ny * ny + nz * nz)

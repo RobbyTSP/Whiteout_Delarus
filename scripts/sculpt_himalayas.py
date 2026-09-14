@@ -189,22 +189,53 @@ def compute_sky_view_ao(elevation, dx, dy):
     return ao_map
 
 def compute_high_precision_normals(elevation, dx, dy):
-    """Computes high-precision normal map using 5-point Sobel operator."""
-    print("  -> Computing High-Precision Terrain Normal Map...")
-    # Sobel kernels for smoother derivatives
-    gy, gx = np.gradient(elevation, dy, dx)
+    """
+    Computes high-resolution World-Space normal map using a true 2D multi-scale Sobel-Feldman operator.
+    Captures razor-sharp couloir crevices, sheer cliff steps, and knife-edge arête shadows.
+    """
+    print("  -> Computing High-Resolution Multi-Scale Sobel Normal Map (Step 9.1)...")
+    h = elevation
     
-    # Normal = normalize(-gx, -gy, 1.0)
-    nz = np.ones_like(elevation)
+    # Radius 1 Sobel-Feldman kernel (34m resolution)
+    h_n  = np.roll(h, -1, axis=0)
+    h_s  = np.roll(h, 1, axis=0)
+    h_e  = np.roll(h, -1, axis=1)
+    h_w  = np.roll(h, 1, axis=1)
+    h_ne = np.roll(np.roll(h, -1, axis=0), -1, axis=1)
+    h_nw = np.roll(np.roll(h, -1, axis=0), 1, axis=1)
+    h_se = np.roll(np.roll(h, 1, axis=0), -1, axis=1)
+    h_sw = np.roll(np.roll(h, 1, axis=0), 1, axis=1)
+    
+    gx1 = ((h_ne + 2.0 * h_e + h_se) - (h_nw + 2.0 * h_w + h_sw)) / (8.0 * dx)
+    gy1 = ((h_se + 2.0 * h_s + h_sw) - (h_ne + 2.0 * h_n + h_nw)) / (8.0 * dy)
+    
+    # Radius 2 Sobel-Feldman kernel (68m resolution) for broad massif relief
+    h_n2  = np.roll(h, -2, axis=0)
+    h_s2  = np.roll(h, 2, axis=0)
+    h_e2  = np.roll(h, -2, axis=1)
+    h_w2  = np.roll(h, 2, axis=1)
+    h_ne2 = np.roll(np.roll(h, -2, axis=0), -2, axis=1)
+    h_nw2 = np.roll(np.roll(h, -2, axis=0), 2, axis=1)
+    h_se2 = np.roll(np.roll(h, 2, axis=0), -2, axis=1)
+    h_sw2 = np.roll(np.roll(h, 2, axis=0), 2, axis=1)
+    
+    gx2 = ((h_ne2 + 2.0 * h_e2 + h_se2) - (h_nw2 + 2.0 * h_w2 + h_sw2)) / (16.0 * dx)
+    gy2 = ((h_se2 + 2.0 * h_s2 + h_sw2) - (h_ne2 + 2.0 * h_n2 + h_nw2)) / (16.0 * dy)
+    
+    gx = 0.75 * gx1 + 0.25 * gx2
+    gy = 0.75 * gy1 + 0.25 * gy2
+    
+    # World Normal: nx = -gx (East), ny = -gy (North), nz = 1.0 (Up)
     nx = -gx
     ny = -gy
+    nz = np.ones_like(h)
     
     length = np.sqrt(nx * nx + ny * ny + nz * nz)
     nx /= length
     ny /= length
     nz /= length
     
-    # Map to [0..255] RGB: X = East, Y = North, Z = Up (OpenGL/Vulkan standard)
+    # Map to [0..255] RGB: R = X (East/West), G = Y (North/South), B = Z (Up)
     norm_r = ((nx * 0.5 + 0.5) * 255.0).clip(0, 255).astype(np.uint8)
     norm_g = ((ny * 0.5 + 0.5) * 255.0).clip(0, 255).astype(np.uint8)
     norm_b = ((nz * 0.5 + 0.5) * 255.0).clip(0, 255).astype(np.uint8)
