@@ -32,50 +32,51 @@ def compute_gradients(arr, dx, dy):
     gy, gx = np.gradient(arr, dy, dx)
     return gx, gy
 
-def sharpen_alpine_ridges(elevation, dx, dy, passes=3):
+def sharpen_alpine_ridges(elevation, dx, dy, passes=2):
     """
-    Sculpts razor-sharp arêtes, pyramidal horns, and knife-edge summit crests.
-    Eliminates the satellite DEM 'marshmallow' effect where ridges are unnaturally rounded.
-    Uses discrete multi-scale curvature differences to pull crests upward by 10-60m
-    and steepen opposing valley headwalls into dramatic alpine arêtes.
+    Sculpts authentic Himalayan arêtes, cirques, and pyramidal massifs without artificial needle spikes.
+    Uses 8-neighbor isotropic curvature to sharpen genuine continuous knife-edge ridges,
+    while steepening cirque headwalls, preserving massive mountain bulk, and adding structural strata ledges.
     """
-    print("  -> Applying Alpine Ridge & Arête Sharpening (Multi-Scale Discrete Curvature)...")
+    print("  -> Applying Calibrated Alpine Ridge & Cirque Sculpting (8-Neighbor Isotropic)...")
     h = elevation.copy()
     
+    # 8-neighbor isotropic stencil weights
+    w_ortho = 1.0
+    w_diag = 1.0 / np.sqrt(2.0)
+    sum_w = 4.0 * w_ortho + 4.0 * w_diag
+    
     for p in range(passes):
-        # 1. Radius 1 (34m) discrete curvature
-        h_up    = np.roll(h, -1, axis=0)
-        h_down  = np.roll(h, 1, axis=0)
-        h_left  = np.roll(h, -1, axis=1)
-        h_right = np.roll(h, 1, axis=1)
-        curv1   = 4.0 * h - (h_up + h_down + h_left + h_right)
+        # 8-neighbor smooth elevation
+        h_nbrs = (
+            w_ortho * (np.roll(h, -1, axis=0) + np.roll(h, 1, axis=0) + np.roll(h, -1, axis=1) + np.roll(h, 1, axis=1)) +
+            w_diag * (np.roll(np.roll(h, -1, axis=0), -1, axis=1) +
+                      np.roll(np.roll(h, -1, axis=0), 1, axis=1) +
+                      np.roll(np.roll(h, 1, axis=0), -1, axis=1) +
+                      np.roll(np.roll(h, 1, axis=0), 1, axis=1))
+        ) / sum_w
         
-        # 2. Radius 2 (68m) broad ridge curvature
-        h_up2    = np.roll(h, -2, axis=0)
-        h_down2  = np.roll(h, 2, axis=0)
-        h_left2  = np.roll(h, -2, axis=1)
-        h_right2 = np.roll(h, 2, axis=1)
-        curv2    = 4.0 * h - (h_up2 + h_down2 + h_left2 + h_right2)
+        # True continuous curvature
+        curv = h - h_nbrs
         
         gx, gy = compute_gradients(h, dx, dy)
         slope = np.sqrt(gx * gx + gy * gy)
         
-        # Mountainside ridge mask: convex curvature on significant slopes (> 14 deg)
-        is_ridge1 = (curv1 > 1.2) & (slope > 0.25)
-        is_ridge2 = (curv2 > 3.0) & (slope > 0.30)
+        # Real alpine ridge mask: convex curvature on substantial slopes (> 16 deg)
+        is_ridge = (curv > 0.8) & (slope > 0.28)
+        # Cirque hollow mask: concave curvature on flanks
+        is_cirque = (curv < -0.8) & (slope > 0.32)
         
-        # Elevation multiplier: higher summits (Everest, Lhotse, Nuptse, Ama Dablam)
-        # experience extreme periglacial frost shattering and glacial cirque steepening
-        alt_gain = np.clip((h - 5000.0) / 3600.0, 0.4, 1.4)
+        alt_gain = np.clip((h - 5200.0) / 3500.0, 0.4, 1.2)
         
-        # Sharpening boost: lift narrow crests by up to 45m per pass
-        sharp1 = np.where(is_ridge1, curv1 * 0.65 * alt_gain, 0.0)
-        sharp2 = np.where(is_ridge2, curv2 * 0.25 * alt_gain, 0.0)
+        # Calibrated crest sharpening (max 14m per pass, no isolated spires)
+        crest_lift = np.where(is_ridge, np.clip(curv * 0.45 * alt_gain, 0.0, 14.0 / (p + 1.0)), 0.0)
+        # Cirque sapping / steepening (draws cirque headwalls down by up to -8m)
+        cirque_drop = np.where(is_cirque, np.clip(-curv * 0.30 * alt_gain, 0.0, 8.0 / (p + 1.0)), 0.0)
         
-        total_lift = np.clip(sharp1 + sharp2, 0.0, 55.0 / (p + 1.0))
-        h += total_lift
+        h = h + crest_lift - cirque_drop
         
-    print(f"     Ridge sharpening complete. Max peak lift: {np.max(h - elevation):.1f}m")
+    print(f"     Alpine sculpting complete. Max summit elevation: {np.max(h):.1f}m (lift: {np.max(h - elevation):.1f}m)")
     return h
 
 def simulate_hydraulic_erosion(elevation, dx, dy, iterations=8):

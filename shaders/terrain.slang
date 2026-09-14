@@ -265,46 +265,61 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 macroNormalWorld = float3(macroNormSample.r, macroNormSample.b, macroNormSample.g);
     float3 N = normalize(geomN + macroNormalWorld * 0.45);
 
-    // 2. Physical Slope-Masking (Neigungs-Weiche)
-    // Precise physical slope angle in degrees
+    // 2. Geomorphological 1:1 Echtwelt-Abgleich (Real-World Snow & Rock Distribution)
+    // Accurate physical slope angle in degrees
     float slopeRad = acos(clamp(N.y, 0.0, 1.0));
     float slopeDeg = degrees(slopeRad);
-    float elevNorm = clamp((input.worldPos.y - pc.minElev) / max(pc.maxElev - pc.minElev, 1.0), 0.0, 1.0);
+    float elev = input.worldPos.y;
+    float elevNorm = clamp((elev - pc.minElev) / max(pc.maxElev - pc.minElev, 1.0), 0.0, 1.0);
 
-    // Physical Classification:
-    // Flach (< 22°): Schnee / Firn auf Hochebenen, Gletschereis im Tal
-    // Mittel (22°–36°): Geröll / Moräne / Talus-Schotter
-    // Steil (> 36°): Reine Felswand (Granit, Kalkstein, Yellow Band)
-    float flatSlopeWeight = 1.0 - smoothstep(18.0, 25.0, slopeDeg);
-    float screeSlopeWeight = smoothstep(18.0, 25.0, slopeDeg) * (1.0 - smoothstep(32.0, 42.0, slopeDeg));
-    float steepCliffWeight = smoothstep(32.0, 42.0, slopeDeg);
+    // 1:1 Satellite Ground Truth (Orbit Reflectance Guidance)
+    // Real-world satellite survey accurately identifies perennial snowfields vs bare rock cliffs
+    float satLuma = dot(satColor.rgb, float3(0.299, 0.587, 0.114));
+    float satSnowPresence = smoothstep(0.46, 0.66, satLuma);
+    float satRockPresence = 1.0 - smoothstep(0.34, 0.50, satLuma);
 
-    // Ridge crest wind-scour: jet stream blows snow away from sharp knife-edge arêtes
+    // Natural Alpine Slope Limits:
+    // Compacted firn & alpine snow clings securely to slopes up to 38°-44°
+    // Cliffs steeper than 44°-52° shed snow down into couloirs, exposing raw rock
+    float cliffRockSlope = smoothstep(38.0, 50.0, slopeDeg);
+    float snowAdhesionSlope = 1.0 - smoothstep(36.0, 48.0, slopeDeg);
+
+    // High-Altitude Permanent Snowline (~5,400m in Khumbu/Everest)
+    float aboveSnowline = smoothstep(5100.0, 5700.0, elev);
+
+    // Wind-Scour on Knife-Edge Arêtes & Jetstream Zone (>8,500m)
+    // Jetstream winds (>150 km/h) blow snow off the windward summit pyramid
     float ridgeExposure = geomMorph.b;
-    float bareRidgeBoost = ridgeExposure * smoothstep(0.35, 0.85, elevNorm) * 0.50;
+    float jetStreamBlowOff = smoothstep(8480.0, 8760.0, elev) * 0.70;
+    float windScouredRidge = ridgeExposure * smoothstep(0.35, 0.90, elevNorm) * 0.55 + jetStreamBlowOff;
 
-    // Couloir Fluting: in carved avalanche chute troughs, firn snow clings down steep slopes
+    // Couloir & Chute Fluting: in carved avalanche chute troughs, firn snow clings down steep slopes up to 60°
     float couloirFactor = geomMorph.r;
-    float couloirSnowCling = couloirFactor * smoothstep(22.0, 55.0, slopeDeg) * 0.70;
+    float couloirSnowCling = couloirFactor * smoothstep(22.0, 60.0, slopeDeg) * 0.85;
 
-    // Thermal Talus Scree Cone boost
-    float talusConeBoost = geomMorph.g * 1.6;
+    // Horizontal Rock Strata Elevation
+    float strataH = elev - 0.22 * input.worldPos.z;
 
-    // Final physical material weights:
-    // 1. Rock: steep cliffs (>32°-42°) + wind-scoured knife-edge ridges
-    float rockWeight = clamp(steepCliffWeight + bareRidgeBoost, 0.0, 1.0);
+    // 1. Rock Weight: Sheer cliffs (>44°-50°) + wind-scoured ridges + satellite-verified rock faces
+    float naturalRock = clamp(cliffRockSlope + windScouredRidge, 0.0, 1.0);
+    float rockWeight = clamp(naturalRock * 0.65 + satRockPresence * 0.55 + windScouredRidge * 0.45, 0.0, 1.0);
 
-    // 2. Snow: high-elevation plateau/firn (<22°) + couloir chute troughs
-    float baseSnowWeight = smoothstep(0.35, 0.55, elevNorm) * flatSlopeWeight;
-    float snowWeight = clamp(baseSnowWeight + couloirSnowCling, 0.0, 1.0) * (1.0 - rockWeight * 0.90);
+    // 2. Snow Weight: All high-altitude terrain below cliff angle + couloirs + satellite snow
+    float alpineSnow = clamp(snowAdhesionSlope * (0.65 + 0.35 * aboveSnowline) + couloirSnowCling, 0.0, 1.0);
+    float snowWeight = clamp(lerp(alpineSnow, 1.0, satSnowPresence * 0.75 * (1.0 - cliffRockSlope * 0.85)), 0.0, 1.0) * (1.0 - rockWeight * 0.88);
 
-    // 3. Glacier Ice: Khumbu Valley tongue (4,700m - 5,450m on gentle slopes < 22°)
-    float glacierElev = smoothstep(4700.0, 5000.0, input.worldPos.y) * (1.0 - smoothstep(5400.0, 5650.0, input.worldPos.y));
-    float glacierWeight = glacierElev * flatSlopeWeight * (1.0 - rockWeight * 0.80) * 0.85;
+    // 3. Glacier Ice: Khumbu Valley glacier tongue (4,700m - 5,450m on gentle valley floors)
+    float glacierElev = smoothstep(4650.0, 4950.0, elev) * (1.0 - smoothstep(5350.0, 5550.0, elev));
+    float glacierWeight = glacierElev * (1.0 - smoothstep(16.0, 24.0, slopeDeg)) * (1.0 - rockWeight) * 0.85;
 
-    // 4. Scree / Moraine / Valley Floor:
-    // Universal geological base substrate for all middle slopes, talus cones, and valley floors
-    float screeWeight = max(0.0, 1.0 - rockWeight - snowWeight - glacierWeight);
+    // 4. Scree / Moraine: ONLY below the snowline (<5,600m) in valleys and on talus cones!
+    // Above 5,700m in the Death Zone, scree is almost zero (high terrain is 100% snow/ice/rock)!
+    float talusConeBoost = geomMorph.g * 1.5;
+    float screeAllowed = (1.0 - aboveSnowline * 0.88);
+    float screeWeight = max(0.0, 1.0 - rockWeight - snowWeight - glacierWeight) * screeAllowed;
+
+    // Reallocate any remaining suppressed scree weight above snowline to snow
+    snowWeight += max(0.0, 1.0 - rockWeight - snowWeight - glacierWeight - screeWeight);
 
     // Normalize material weights
     float totalW = rockWeight + snowWeight + screeWeight + glacierWeight;
@@ -314,7 +329,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         screeWeight /= totalW;
         glacierWeight /= totalW;
     } else {
-        screeWeight = 1.0;
+        snowWeight = 1.0;
     }
 
     // Smooth triplanar projection blend weights based on high-precision normal N
@@ -349,23 +364,22 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float rockLuma = dot(triplanarRockAlbedo, float3(0.299, 0.587, 0.114));
     float3 coldRockAlbedo = lerp(triplanarRockAlbedo, float3(rockLuma * 0.94, rockLuma * 0.98, rockLuma * 1.04), 0.60) * 1.12;
 
-    float strataH = input.worldPos.y - 0.22 * input.worldPos.z;
     float3 strataTint = float3(0.96, 0.98, 1.00);
 
-    if (strataH >= 7000.0 && strataH < 8180.0) {
-        // North Col Formation: Dark pelitic schists and phyllites
+    if (strataH < 8200.0) {
+        // Base to 8,200m: North Col Formation & Tibetan Crystalline (dark grey schist, gneiss, granite)
         float metaBand = sin(strataH * 0.08) * 0.04 * clamp(1.0 - distToCam / 600.0, 0.0, 1.0);
         strataTint = float3(0.86 + metaBand, 0.88 + metaBand, 0.92);
     }
-    else if (strataH >= 8180.0 && strataH < 8580.0) {
-        // The Yellow Band: Pale buff / golden-cream dolomitic limestone/marble
-        // Real dolomitic marble is pale ochre/travertine, NOT dark brown clay!
+    else if (strataH >= 8200.0 && strataH < 8600.0) {
+        // 8,200m - 8,600m: The Yellow Band (pale buff / golden-cream dolomitic marble)
         float yellowRhythm = (sin(strataH * 0.12) * 0.08) * clamp(1.0 - distToCam / 500.0, 0.0, 1.0);
-        strataTint = lerp(float3(1.22, 1.16, 0.94), float3(1.14, 1.08, 0.88), yellowRhythm + 0.5);
+        strataTint = lerp(float3(1.30, 1.22, 0.92), float3(1.20, 1.12, 0.84), yellowRhythm + 0.5);
     }
-    else if (strataH >= 8580.0) {
-        // Qomolangma Formation: Ordovician limestone of the summit pyramid
-        strataTint = float3(1.05, 1.06, 1.08);
+    else {
+        // > 8,600m: Qomolangma Formation (dark grey/black Ordovician limestone of the summit pyramid)
+        float summitGrain = sin(strataH * 0.15) * 0.03 * clamp(1.0 - distToCam / 400.0, 0.0, 1.0);
+        strataTint = float3(0.72 + summitGrain, 0.74 + summitGrain, 0.78);
     }
 
     triplanarRockAlbedo = clamp(coldRockAlbedo * strataTint, 0.0, 1.0);

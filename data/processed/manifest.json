@@ -23,9 +23,9 @@
   },
   "elevation_meters": {
     "min": 3657.0,
-    "max": 8792.767578125,
-    "mean": 5648.97314453125,
-    "range": 5135.767578125
+    "max": 8755.371049262087,
+    "mean": 5642.575319012936,
+    "range": 5098.371049262087
   },
   "files": {
     "raw_float32": "everest_dem_float32.bin",
@@ -37,6 +37,6 @@
     "terrain_scale_x": 34610.51254563512,
     "terrain_scale_y": 34523.49964439187,
     "height_offset": 3657.0,
-    "height_scale": 5135.767578125
+    "height_scale": 5098.371049262087
   }
 }
