@@ -448,6 +448,49 @@ In Schritt 9.2 (1:1 Part VII) wurde das Terrain über vier Kernbereiche von eine
 
 ---
 
+## 🏔️ Schritt 10: Physikalische Schnee-Kopplung & Triplanar-Homogenisierung (1:1 Part VIII - Geplant)
+
+Zur Beseitigung unnatürlicher Texturübergänge und zur physikalischen Verankerung von Schnee und Fels:
+
+### 1. Schneeablagerung physikalisch koppeln (Height-Blending & Flow)
+* **Weg von Flecken-Masken:**
+  * Auf den mittleren Graten wirkt der Schnee teilweise noch wie aufgemalte "Kuhflecken".
+  * Die Schneemaske wird direkt an die Heightmap der Felswand gekoppelt: Schnee darf sich physikalisch nur in den Tälern, Furchen und Rillen der Normal-/Heightmap sammeln:
+    $$\text{height\_mask} = \text{saturate}((\text{rock\_height} - \text{snow\_level}) \cdot \text{sharpness})$$
+* **Wind- und Fallrichtung einbauen:**
+  * Echter Schnee fällt von oben ($+Y$) und wird vom Jetstream verdriftet.
+  * Nutzung von $\mathbf{N} \cdot \mathbf{up}$ kombiniert mit einem Richtungsvektor für den Höhenwind, damit Schnee vorwiegend auf horizontalen Terrassen, Firnkaren und in windabgewandten Rinnen (Lee) haften bleibt, während exponierte Luv-Kanten abgeweht werden.
+
+### 2. Triplanar-Projektion auf allen Achsen homogenisieren
+* **Fixierung steiler Flanken:**
+  * An Steilflanken wird jegliches vertikales Abschmieren des Gesteins durch homogene Achsenskalierung und einen gezielten Schärfe-Exponenten beim Blenden der Projektionsachsen eliminiert:
+    $$w = \text{pow}(\vert\mathbf{N}\vert, 6.0)$$
+* **Korrekter Tangentenraum auf den Projektionsachsen ($X$ und $Z$):**
+  * Transformation der Normal-Maps mit dem exakten Tangentenraum der jeweiligen Projektionsachse, um „flache Schalen“ in Mulden zu vermeiden und plastische Felsstrukturen aus jedem Blickwinkel beizubehalten.
+
+---
+
+## 🏔️ Schritt 11: PBR-Tiefenplastizität, Dynamic Sky / Skybox & Rayleigh-Dunst (1:1 Part IX - Geplant)
+
+Zur Perfektionierung der Lichtstimmung, Schattentiefe und Himmelsatmosphäre:
+
+### 1. Beleuchtung & Tiefenplastizität (PBR)
+* **HBAO / Screen-Space & Contact Occlusion:**
+  * In den engen Falten zwischen den Graten und in tiefen Schluchten fehlt das tiefe Umgebungsdunkel, in das kein Himmelslicht vordringt.
+  * Tiefe Kontaktschatten in Furchen und Mulden nehmen dem Gelände das verbleibende Polygon-Gefühl und erzeugen monumentale Masse.
+* **Roughness-Splitting:**
+  * Fels benötigt hohe Rauheit ($0,85$–$0,95$), während gefrorener Schnee, Firn und Eislinsen in Rinnen niedrigere Werte ($0,3$–$0,5$) mit gerichtetem Specular-Highlight erhalten, an denen das Sonnenlicht bricht.
+
+### 2. Atmosphäre & Himmel (Dynamic Sky / Skybox)
+* **Skybox / Dynamic Sky:**
+  * Das neutrale Grau-Blau des Himmels wird durch einen dynamischen atmosphärischen Gradienten mit Sonnenstand oder eine hochaufgelöste HDR-Skybox ersetzt.
+  * Liefert physikalisch fundierte Einstrahlung und farbig nuanciertes Umgebungslicht (Ambient Light).
+* **Rayleigh-Scattering & Distanzdunst:**
+  * Die hintersten Achttausender-Massive müssen über die Distanz messbar bläulicher, weicher und kontrastärmer werden.
+  * Ein Exponential-Height-Fog, der mit der Distanz zur Kamera zunimmt, verdoppelt optisch die Weite des Himalayas.
+
+---
+
 ## 🔭 Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
@@ -461,6 +504,8 @@ In Schritt 9.2 (1:1 Part VII) wurde das Terrain über vier Kernbereiche von eine
 * [x] **Schritt 9 (1:1 Part V):** Geomorphologischer 1:1 Echtwelt-Abgleich: Entschärfung des über-spitzen Nadel-Looks zu massiven Monumental-Sockeln & akkurate Schnee/Fels-Balance (Hängegletscher, Firnkare, Felsband-Schneeterrassen).
 * [x] **Schritt 9.1 (1:1 Part VI):** GPU-Tessellation / Virtual Heightfield (Auflösung der 33,8 m Kanten via Detail-Displacement), Multi-Scale Sobel-Normal-Baking & Geologisches Höhen-Banding (>8.600m Qomolangma mit Jetstream Wind-Scour, 8.200m–8.600m Yellow Band, <8.200m Gneis/Granit).
 * [x] **Schritt 9.2 (1:1 Part VII):** Brutaler Fotorealismus: Verschärfte Triplanar-Exponenten (Null Wandstreckung), Physical Height-Blending mit Distance-Fading, Schnee-Subsurface-Scattering (SSS), Rayleigh/Mie-Atmosphärenstreuung, Talus-Schuttkegel, ACES-Highlight-Schutz & Jetstream-Schneefahnen.
+* [ ] **Schritt 10 (1:1 Part VIII):** Physikalische Schnee-Kopplung (Height-Blending & Flow gegen Flecken-Optik, Fallrichtung $+Y$ & Winddrift) & Triplanar-Homogenisierung (Normal-Transformation der $X/Z$-Achsen, Exponent $w = |\mathbf{N}|^{6.0}$).
+* [ ] **Schritt 11 (1:1 Part IX):** PBR-Tiefenplastizität (HBAO/Kontaktschatten in Furchen, Roughness-Splitting Fels $0,85$–$0,95$ vs. Eis $0,3$–$0,5$) & Dynamic Sky / Skybox mit weitem Rayleigh-Distanzdunst.
 
 
 
