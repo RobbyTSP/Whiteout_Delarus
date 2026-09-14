@@ -410,6 +410,44 @@ In Schritt 9.1 (1:1 Part VI) wurden die verbliebenen geraden 33,8 m Rasterkanten
 
 ---
 
+## 🏔️ Schritt 9.2: Brutaler Fotorealismus – Mikro-Blending, Schnee-SSS, Rayleigh/Mie & Jetstream-Schneefahnen (1:1 Part VII - Abgeschlossen)
+
+In Schritt 9.2 (1:1 Part VII) wurde das Terrain über vier Kernbereiche von einem "sehr guten Game-Mesh" auf brutalen, kompromisslosen Fotorealismus gehoben:
+
+### 1. Shader & Textur-Blending (Mikroebene) ([`shaders/terrain.slang`](shaders/terrain.slang))
+* **Vollständige Eliminierung von Triplanar-Streckung:**
+  * Der Projektions-Blend-Exponent wurde neigungsadaptiv verschärft (`lerp(4.0, 10.0, smoothstep(22.0, 52.0, geomSlopeDeg))`).
+  * Steile Vertikalwände (> 35°) erhalten zu 99 %+ eine reine Seitenprojektion ($X/Z$), wodurch jegliches senkrechtes "Abfließen" oder Verschmieren der Texturen an Felswänden restlos beseitigt ist.
+* **Physical Height-Blending mit Distance-Fading:**
+  * Wenn Schnee auf Fels trifft, wird nicht transparent überblendet. Das System nutzt die Heightmaps ([`texRockDisp`](shaders/terrain.slang), [`texSnowDisp`](shaders/terrain.slang)) als physikalische Tiefenmaske: Schnee lagert sich zuerst in tiefen Felsspalten und Rillen ab, bevor er erhabene Steinblöcke bedeckt.
+  * **Distance-Fading (< 120 m):** Das Height-Blending moduliert den Nahbereich im direkten Sichtfeld, während es jenseits von 120 m nahtlos in kontinuierliches Makro-Blending übergeht. Dadurch werden Moiré- und Kachelmuster in der Ferne vollständig verhindert.
+* **Gekachelte Mikro-Detail-Normal-Maps:**
+  * Im Nahbereich (< 90 m) blenden hochfrequente Detail-Normalen (1,2 m Granit-Klüfte, 0,6 m körnige Firn-Eiskristalle) sanft ein und verleihen Fels und Schnee unmittelbare haptische Schärfe.
+
+### 2. Physikalisch basierte Beleuchtung (PBR & Atmosphäre) ([`shaders/terrain.slang`](shaders/terrain.slang))
+* **Wellenlängenabhängiges Rayleigh- & Mie-Streuungsmodell:**
+  * Echte Höhenluft bricht blaues Sonnenlicht sechsmal stärker als rotes ($\beta_R \propto \lambda^{-4}$).
+  * Weiter entfernte Bergmassive werden durch spektrale In-Scattering-Atmosphäre tief azurblau und dunstig, während sonnenbeschienener Eisdunst über eine Vorwärts-Mie-Phasenfunktion ($g = 0,76$) einen feinen silbrig-goldenen Lichthof um die Sonne erzeugt.
+* **Subsurface Scattering (SSS) für Schnee & Gletschereis:**
+  * Schnee verhält sich nicht wie diffuser Gips: Licht dringt in die Eiskristalle ein und streut im Volumen.
+  * Ein zweistufiger SSS-Term (Vorwärts-Transluzenz an Graten und Wechten + weiches Diffus-Wrap-Leuchten) nimmt dem Schnee die kalkige Optik und verleiht ihm den charakteristischen transluzenten Eisglanz.
+* **Vertiefte Geomorphologische Ambient Occlusion:**
+  * Enge Couloirs, Gurgeln und Kaminrisse erhalten eine gezielte Kontakt-Verdunklung (`gorgeCavity`), die die plastische Schattentiefe von Steilwänden dramatisch verstärkt.
+
+### 3. Geologische Akkuranz (Himalaya-Details) ([`shaders/terrain.slang`](shaders/terrain.slang))
+* **Dynamische Schuttkegel (Talus/Scree Fans) am Wandfuß:**
+  * An den Fußpunkten steiler Felswände bricht konstant Gestein ab. Bei Neigungen zwischen 24° und 36° (Schüttwinkel / Angle of Repose) blendet der Shader fließend Schotter- und Gerölltexturen ein, um den Übergang von Felswand zu Schneefeld organisch zu brechen.
+* **Horizontales Höhenbanding:**
+  * Reale Schichtung: Dunkelgrauer mikritischer Qomolangma-Kalkstein (> 8.600 m), das markante gelbliche Dolomit-Band (8.200 m – 8.600 m) und der kaltgraue Gneis/Granit-Sockel (< 8.200 m).
+
+### 4. Post-Processing & Dynamik ([`shaders/terrain.slang`](shaders/terrain.slang))
+* **ACES Filmic Tonemapping mit Highlight-Compression:**
+  * Fängt extreme Helligkeitsspitzen auf voll sonnenbeschienenen Schneeflanken sauber ab ($exposure = 0,82$). Verhindert hartes Weiß-Clipping und erhält Firnstrukturen und Windrippeln auch bei gleißendem Mittagslicht vollständig.
+* **Dynamische Jetstream-Schneefahnen (Summit Banner Clouds):**
+  * Das legendäre Markenzeichen des Mount Everest: Von orkanartigen Jetstream-Winden (> 150 km/h) aus den höchsten Graten (> 7.900 m) in den Himmel gewehte, transluzente Spindrift-Schneefahnen driften lebendig im Wind.
+
+---
+
 ## 🔭 Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
@@ -422,6 +460,7 @@ In Schritt 9.1 (1:1 Part VI) wurden die verbliebenen geraden 33,8 m Rasterkanten
 * [x] **Schritt 8 (1:1 Part IV):** Fotorealismus-Feinschliff: Beseitigung von Wabenmuster/Kachelung durch Multi-Scale Distance Tiling & Domain Warping, authentische Himalaya-Petrologie, Multi-Bounce Schneelicht & weiche Schatten.
 * [x] **Schritt 9 (1:1 Part V):** Geomorphologischer 1:1 Echtwelt-Abgleich: Entschärfung des über-spitzen Nadel-Looks zu massiven Monumental-Sockeln & akkurate Schnee/Fels-Balance (Hängegletscher, Firnkare, Felsband-Schneeterrassen).
 * [x] **Schritt 9.1 (1:1 Part VI):** GPU-Tessellation / Virtual Heightfield (Auflösung der 33,8 m Kanten via Detail-Displacement), Multi-Scale Sobel-Normal-Baking & Geologisches Höhen-Banding (>8.600m Qomolangma mit Jetstream Wind-Scour, 8.200m–8.600m Yellow Band, <8.200m Gneis/Granit).
+* [x] **Schritt 9.2 (1:1 Part VII):** Brutaler Fotorealismus: Verschärfte Triplanar-Exponenten (Null Wandstreckung), Physical Height-Blending mit Distance-Fading, Schnee-Subsurface-Scattering (SSS), Rayleigh/Mie-Atmosphärenstreuung, Talus-Schuttkegel, ACES-Highlight-Schutz & Jetstream-Schneefahnen.
 
 
 

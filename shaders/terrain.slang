@@ -103,10 +103,6 @@ VertexOutput vertexMain(VertexInput input) {
 
         float3 dispVector = (horizDisplace + float3(0.0, vertDisplace, 0.0)) * dispFade;
         worldPos.xyz += dispVector;
-
-        // Perturb vertex normal slightly to break up linear triangle lighting
-        float3 bumpN = float3(-n1 * 0.22, 0.95, -n2 * 0.22);
-        normal = normalize(normal + bumpN * (dispFade * slopeFactor * 0.35));
     }
 
     output.worldPos = worldPos.xyz;
@@ -369,6 +365,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float screeAllowed = (1.0 - aboveSnowline * 0.88);
     float screeWeight = max(0.0, 1.0 - rockWeight - snowWeight - glacierWeight) * screeAllowed;
 
+    // Step 9.2: Dynamic Talus Scree Fans at Cliff Bases
+    // At the angle of repose (24°-36°), rock debris falls from cliffs and accumulates in fans
+    float screeFooting = geomMorph.g * smoothstep(44.0, 26.0, slopeDeg) * (1.0 - aboveSnowline * 0.65);
+    screeWeight = clamp(screeWeight + screeFooting * 0.85, 0.0, 1.0);
+
     // Reallocate any remaining suppressed scree weight above snowline to snow
     snowWeight += max(0.0, 1.0 - rockWeight - snowWeight - glacierWeight - screeWeight);
 
@@ -383,8 +384,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         snowWeight = 1.0;
     }
 
-    // Smooth triplanar projection blend weights based on high-precision normal N
-    float3 blendWeights = pow(abs(N), float3(3.0, 3.0, 3.0));
+    // Step 9.2: Sharpened Slope-Adaptive Triplanar Blend Exponent
+    // Steep vertical cliffs (>30°) demand high blend power (8.0-10.0) to eliminate vertical texture dripping/smearing!
+    float triplanarPower = lerp(4.0, 10.0, smoothstep(22.0, 52.0, geomSlopeDeg));
+    float3 blendWeights = pow(abs(N), float3(triplanarPower, triplanarPower, triplanarPower));
     blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z + 0.00001);
 
     // Sample Triplanar Rock Albedo with Multi-Scale Distance-Tiled Anti-Tiling (eliminates waffle/honeycomb tiling!)
@@ -409,6 +412,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float rockRoughY = sampleTriplanarRoughMulti(texRockRoughness, input.worldPos.xz, distToCam);
     float rockRoughZ = sampleTriplanarRoughMulti(texRockRoughness, input.worldPos.xy, distToCam);
     float triplanarRockRoughness = rockRoughX * blendWeights.x + rockRoughY * blendWeights.y + rockRoughZ * blendWeights.z;
+
+    // Step 9.2: Triplanar Rock Displacement/Height for Height-Blending
+    float rockDispH_X = texRockDisp.Sample(input.worldPos.zy * (1.0 / 24.0)).r;
+    float rockDispH_Y = texRockDisp.Sample(input.worldPos.xz * (1.0 / 24.0)).r;
+    float rockDispH_Z = texRockDisp.Sample(input.worldPos.xy * (1.0 / 24.0)).r;
+    float rockHeight = rockDispH_X * blendWeights.x + rockDispH_Y * blendWeights.y + rockDispH_Z * blendWeights.z;
 
     // 4. Geological Strata: Mount Everest Rock Formations & The "Yellow Band"
     // Authentic Himalayan Petrology: Cool down warm tones into cold slate grey, gneiss & granite
@@ -482,9 +491,22 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 planarNorm = snowNorm * snowWeight + screeNorm * screeWeight + glacierNorm * glacierWeight;
     float planarRough = snowRough * snowWeight + screeRough * screeWeight + glacierRough * glacierWeight;
 
-    // Composite Triplanar Rock with Planar Ground (Full PBR across entire mountain!)
-    float3 detailAlbedo = triplanarRockAlbedo * rockWeight + planarAlbedo;
-    float roughness = triplanarRockRoughness * rockWeight + planarRough;
+    // Step 9.2: Physical Height-Blending with Distance Fading
+    // Close to camera (<120m): snow physically settles into rock crevices and depressions first.
+    // At distance (>120m): fades smoothly into continuous macro blending, completely eliminating distant moiré/screen artifacts!
+    float snowHeight = texSnowDisp.Sample(snowUV).r;
+    float heightBlendDistFade = clamp(1.0 - distToCam / 120.0, 0.0, 1.0);
+    float heightModulation = heightBlendDistFade * 0.18;
+
+    float rockHeightScore = rockWeight + (rockHeight - 0.5) * heightModulation;
+    float groundHeightScore = (1.0 - rockWeight) + (snowHeight - 0.5) * heightModulation;
+    float heightDiff = rockHeightScore - groundHeightScore;
+    float rockBlendLocal = smoothstep(-0.08, 0.08, heightDiff);
+    float rockBlendFactor = lerp(rockWeight, rockBlendLocal, heightBlendDistFade);
+
+    // Composite Triplanar Rock with Planar Ground using Height-Blend factor
+    float3 detailAlbedo = triplanarRockAlbedo * rockBlendFactor + planarAlbedo * (1.0 - rockBlendFactor);
+    float roughness = triplanarRockRoughness * rockBlendFactor + planarRough * (1.0 - rockBlendFactor);
 
     // Metric close-up micro-grain: active ONLY within 12 meters of camera
     // Completely eliminates distant Moiré / honeycomb interference patterns!
@@ -504,15 +526,33 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 surfacePerturb = (planarLenSq > 0.001) ? 
         normalize(tangent * planarNorm.x + bitangent * planarNorm.y + geomN * planarNorm.z) : geomN;
 
-    float3 pbrNormal = (rockWeight > 0.99) ? triplanarRockNormal :
-                       (rockWeight < 0.01) ? surfacePerturb :
-                       normalize(lerp(surfacePerturb, triplanarRockNormal, rockWeight));
+    float3 pbrNormal = (rockBlendFactor > 0.99) ? triplanarRockNormal :
+                       (rockBlendFactor < 0.01) ? surfacePerturb :
+                       normalize(lerp(surfacePerturb, triplanarRockNormal, rockBlendFactor));
+
+    // Step 9.2: High-Frequency Micro-Detail Normal Maps with Distance Fading
+    // Fades in within 90 meters: granular firn snow crystals and sharp granite mineral fissures
+    float closeDetailFade = clamp(1.0 - distToCam / 90.0, 0.0, 1.0);
+    if (closeDetailFade > 0.005) {
+        // 1.2m granite micro-cracks
+        float2 microRockUV = input.worldPos.xz * 1.6;
+        float3 microRockN = texRockNormal.Sample(microRockUV).rgb * 2.0 - 1.0;
+
+        // 0.6m crystalline firn snow grain
+        float2 microSnowUV = input.worldPos.xz * 3.2;
+        float3 microSnowN = texSnowNormal.Sample(microSnowUV).rgb * 2.0 - 1.0;
+
+        float3 microNormTangent = lerp(microRockN, microSnowN, 1.0 - rockBlendFactor);
+        float3 microWorldN = normalize(tangent * microNormTangent.x + bitangent * microNormTangent.y + pbrNormal * 1.2);
+        pbrNormal = normalize(lerp(pbrNormal, microWorldN, closeDetailFade * 0.45));
+    }
 
     float3 finalNormal = normalize(N + pbrNormal * 0.50);
 
-    // 7. Geomorphological Ambient Occlusion (Sky View Factor)
-    // Deep couloirs, narrow canyons, and base folds receive deep contact shadowing
-    float ao = clamp(geomMorph.a, 0.25, 1.0);
+    // Step 9.2: Deep Cavity & Horizon Ambient Occlusion (Sky View Factor)
+    // Plunges tight couloirs, gorge floors, and undercut rock walls into realistic deep shadow
+    float gorgeCavity = smoothstep(0.20, 0.70, geomMorph.r) * smoothstep(28.0, 62.0, geomSlopeDeg);
+    float ao = clamp(geomMorph.a * (1.0 - gorgeCavity * 0.40), 0.16, 1.0);
 
     // 8. Stratospheric Himalayan Atmospheric Lighting & Irradiance
     // Soft diffuse terminator (Half-Lambert wrap) prevents harsh blocky polygonal shadow edges
@@ -559,7 +599,19 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float VdotN = clamp(dot(V, finalNormal), 0.0, 1.0);
     float fresnel = pow(1.0 - VdotN, 5.0) * (snowWeight * 0.30 + glacierWeight * 0.75);
 
-    float3 litColor = compositeAlbedo * (directLight + totalAmbient) + float3(specular + fresnel, specular + fresnel, specular + fresnel);
+    // Step 9.2: Subsurface Scattering (SSS) for Alpine Firn & Glacier Ice
+    // Takes away the chalky plaster look; light penetrates into ice crystals and scatters softly
+    float sssSnowWeight = snowWeight * (1.0 - rockBlendFactor);
+    float3 sssLightDir = normalize(L + finalNormal * 0.40);
+    float sssBackDot = clamp(dot(V, -sssLightDir), 0.0, 1.0);
+    float3 sssForwardGlow = pow(sssBackDot, 4.0) * float3(0.78, 0.88, 1.05) * pc.sunColor.rgb * 0.50 * earthShadow;
+    float sssWrapTerm = smoothstep(-0.35, 0.65, rawNdotL);
+    float3 sssVolumetricTint = float3(0.72, 0.86, 1.0) * pc.sunColor.rgb * sssWrapTerm * 0.25 * earthShadow;
+    float3 snowSSS = (sssForwardGlow + sssVolumetricTint) * sssSnowWeight * (ao * 0.70 + 0.30);
+
+    float3 litColor = compositeAlbedo * (directLight + totalAmbient) + 
+                      float3(specular + fresnel, specular + fresnel, specular + fresnel) + 
+                      snowSSS;
 
     // 10. Volumetric Valley Cloud Sea (Wolkenmeer)
     float cloudDensitySetting = pc.cameraPos.w;
@@ -600,12 +652,30 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         }
     }
 
-    // 11. Stratospheric Himalayan Aerial Perspective & Rayleigh Scattering
-    // High Himalayan dry, thin air has 100+ km crystal clarity
-    float fogDensity = lerp(0.000008, 0.000003, altRatio);
-    float fogFactor = 1.0 - exp(-distToCam * fogDensity);
-    float3 fogColor = lerp(float3(0.50, 0.65, 0.82), float3(0.12, 0.18, 0.36), altRatio);
-    float3 finalColor = lerp(litColor, fogColor, clamp(fogFactor, 0.0, 0.55));
+    // Step 9.2: Physically Based Stratospheric Rayleigh & Mie Atmospheric Scattering
+    // High Himalayan thin air has crystal clarity; distant massifs turn deep azure blue (Rayleigh)
+    // while the thin ice haze casts a soft silver-golden forward Mie halo around the sun
+    float3 betaRayleigh = float3(5.8e-6, 13.5e-6, 33.1e-6) * lerp(1.0, 0.35, altRatio);
+    float3 rayleighOpticalDepth = betaRayleigh * distToCam;
+    float3 rayleighTransmittance = exp(-rayleighOpticalDepth);
+
+    float betaMie = 2.5e-6 * lerp(1.2, 0.25, altRatio);
+    float mieOpticalDepth = betaMie * distToCam;
+    float mieTransmittance = exp(-mieOpticalDepth);
+
+    float3 totalTransmittance = clamp(rayleighTransmittance * mieTransmittance, 0.0, 1.0);
+
+    float cosThetaRay = dot(V, -L);
+    float phaseRayleigh = 0.75 * (1.0 + cosThetaRay * cosThetaRay);
+    float gMie = 0.76;
+    float phaseMieAtm = 1.5 * (1.0 - gMie * gMie) / (2.0 + gMie * gMie) * (1.0 + cosThetaRay * cosThetaRay) / pow(max(1.0 + gMie * gMie - 2.0 * gMie * cosThetaRay, 0.001), 1.5);
+
+    float3 rayleighInscatter = float3(0.26, 0.50, 0.90) * (1.0 - rayleighTransmittance) * phaseRayleigh * pc.sunColor.rgb * (earthShadow * 0.6 + 0.4);
+    float3 mieInscatter = pc.sunColor.rgb * (1.0 - mieTransmittance) * phaseMieAtm * 0.65 * earthShadow;
+    float3 ambientHaze = lerp(float3(0.35, 0.48, 0.72), float3(0.12, 0.18, 0.42), altRatio) * (1.0 - rayleighTransmittance.b);
+
+    float3 atmosphericInscatter = rayleighInscatter + mieInscatter + ambientHaze;
+    float3 finalColor = litColor * totalTransmittance + atmosphericInscatter;
 
     // 12. Blizzard, Spindrift & Whiteout Storm Simulation
     float blizzard = pc.sunColor.w;
@@ -614,7 +684,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         float spindriftNoise = sin(stormCoord.x) * cos(stormCoord.y) * 0.5 + 0.5;
         float spindriftPlume = pow(spindriftNoise, 3.0) * (geomMorph.b * 1.5 + (1.0 - N.y) * 0.8) * blizzard * 0.40;
 
-        float stormFogDensity = lerp(fogDensity, 0.00035, blizzard);
+        float stormFogDensity = lerp(0.000008, 0.00035, blizzard);
         float stormFogFactor = 1.0 - exp(-distToCam * stormFogDensity);
         float3 stormFogColor = float3(0.85, 0.88, 0.92);
 
@@ -622,9 +692,29 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                      float3(spindriftPlume, spindriftPlume, spindriftPlume);
     }
 
-    // 13. ACES Filmic Tone Mapping & Anti-Blowout Highlight Preservation:
-    // Compresses bright sunlit snow gracefully so highlight details never burn out into flat white!
-    float exposure = 0.88;
+    // Step 9.2: Jetstream Summit Snow Plumes (Schneefahnen / Banner Clouds)
+    // Mount Everest's legendary signature: translucent spindrift plumes blown off the summit arêtes into the sky
+    float plumeElev = smoothstep(7900.0, 8750.0, input.worldPos.y);
+    float ridgeSharpness = smoothstep(0.30, 0.85, geomMorph.b);
+    float plumeEligibility = plumeElev * ridgeSharpness;
+
+    if (plumeEligibility > 0.01) {
+        float2 jetstreamWindDir = normalize(float2(0.92, 0.38));
+        float2 plumeTraverse = input.worldPos.xz * 0.015 - jetstreamWindDir * (pc.time * 2.8);
+        float p1 = sin(plumeTraverse.x * 2.2 + cos(plumeTraverse.y * 1.8) * 2.4);
+        float p2 = cos(plumeTraverse.y * 3.1 + sin(plumeTraverse.x * 1.9) * 2.1);
+        float p3 = sin((plumeTraverse.x + plumeTraverse.y) * 4.5);
+        float wispyPlume = pow(clamp((p1 * 0.5 + p2 * 0.35 + p3 * 0.15) * 0.5 + 0.5, 0.0, 1.0), 2.5);
+
+        float plumeSunScatter = pow(clamp(dot(V, -L) * 0.5 + 0.5, 0.0, 1.0), 3.0);
+        float3 plumeColor = pc.sunColor.rgb * (0.85 + 0.65 * plumeSunScatter) * float3(0.92, 0.95, 1.0);
+        float plumeAlpha = wispyPlume * plumeEligibility * 0.36 * earthShadow;
+        finalColor = lerp(finalColor, plumeColor, plumeAlpha);
+    }
+
+    // 13. Step 9.2: ACES Filmic Tone Mapping with Anti-Blowout Highlight Preservation
+    // Prevents harsh white clipping on sun-facing snow slopes; maintains crisp crest contours and normal relief
+    float exposure = 0.82;
     float3 toneMapped = ACESFilm(finalColor * exposure);
 
     return float4(toneMapped, 1.0);

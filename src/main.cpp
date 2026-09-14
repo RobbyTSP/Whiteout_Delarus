@@ -76,7 +76,7 @@ int main(int argc, char* argv[]) {
         float customYaw = 0.0f, customPitch = 0.0f;
 
         for (int i = 1; i < argc; i++) {
-            if (std::string(argv[i]) == "--screenshot") {
+            if (std::string(argv[i]) == "--screenshot" || std::string(argv[i]) == "--headless-screenshot") {
                 screenshotPath = (i + 1 < argc) ? argv[i + 1] : "everest_step6.png";
             } else if (std::string(argv[i]) == "--preset" && i + 1 < argc) {
                 initialPreset = std::atoi(argv[i + 1]);
