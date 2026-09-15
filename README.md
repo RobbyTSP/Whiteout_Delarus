@@ -504,6 +504,49 @@ Perfektionierung der Lichtstimmung, Schattentiefe und Himmelsatmosphäre ([`shad
 
 ---
 
+## 🏔️ Schritt 12: Brutaler Felskontrast, Knochentrockener Granit, Messerscharfe Schneegullies & Tiefe Schluchten-Schwärze (1:1 Part X - Abgeschlossen)
+
+Korrektur der fotorealistischen Kernbereiche: Wiederherstellung des echten Hochgebirgskontrasts, Beseitigung speckiger Wachs-/Plastikreflexionen, Eliminierung runder 33,8m-Mesh-Kuhflecken durch Multi-Scale Displacement und streckungsfreier Triplanar-Schnee ([`shaders/terrain.slang`](shaders/terrain.slang)):
+
+### 1. Fels-Albedo & Kontrast (Der Fels ist nicht mehr ertrunken)
+* **Wiederherstellung des epischen 6:1 bis 8:1 Kontrastverhältnisses:**
+  * Vorherige Shader-Iterationen hatten den Fels zu hellgrau eingefärbt oder mit weichen Blend-Maps verwässert.
+  * Dunkler, knochentrockener Granit, Gneis und Kalkstein heben sich jetzt mit extrem hoher Prägnanz vom strahlend weißen Schnee ($RGB \approx 0,88$–$0,92$) ab:
+    * **Sockel bis 8.200 m:** Kaltgrauer bis anthrazitfarbener Tibetischer Gneis & Migmatit-Granit ($RGB \approx 0,16$–$0,20$).
+    * **8.200 m – 8.600 m:** Das berühmte **Yellow Band** (ocker-/gelblicher dolomitischer Marmorstreifen, $RGB \approx 0,26$–$0,32$) als klarer geologischer Horizont ohne künstliche Wellenmuster.
+    * **> 8.600 m:** Die **Qomolangma-Formation** (pechschwarzer bis dunkelgrauer mikritischer Kalkstein, $RGB \approx 0,11$–$0,14$).
+  * Kein Satelliten-Bleaching mehr auf nacktem Gestein: Die Satellitentönung wird rein auf Firn und Eis angewendet.
+
+### 2. Roughness & Beleuchtung (Schluss mit Plastik-, Wachs- & Cellophan-Glanz)
+* **Knochentrockener, rein diffuser Fels:**
+  * Fels-Roughness auf strikt **$0,88$ bis $0,98$** festgenagelt.
+  * Sämtliche Specular-Highlights, Glitzer-Facetten und Fresnel-Ränder auf Felsflächen wurden mathematisch auf **$0,0$** eliminiert.
+  * **Harter Lambertian-Terminator:** Ersetzung weicher Half-Lambert-Wrap-Funktionen durch reines physikalisches Lambert-Gesetz $\max(0, \mathbf{N} \cdot \mathbf{L})$. Sobald eine Felsflanke aus dem Sonnenlicht dreht, stürzt sie ohne wachsartigen Schmierglanz sofort in scharfen, alpinen Schlagschatten.
+* **Kristalline Firnschnee-Roughness:**
+  * Schnee-Roughness von unrealistisch glatten Werten ($0,32$) auf authentische **$0,70$ bis $0,86$** angehoben. Echter Alpinschnee streut diffus in alle Raumrichtungen statt wie lackierter Kunststoff zu spiegeln.
+  * Subtiler mikroskopischer Diamond-Dust-Sparkle ($\text{pow}(\mathbf{R} \cdot \mathbf{V}, 128.0)$) bricht das Sonnenlicht nur bei extrem streifendem Lichteinfall in zarten Eiskristall-Lichtpunkten.
+
+### 3. Schneemasken-Schärfe & Couloir-Flow (Weg von runden 33,8m-Mesh-Blobs)
+* **Master Cliff-Rock-Bestimmung:**
+  * Auf flachem Gelände ($<26^\circ$ Neigung, z.B. Everest Base Camp auf 5.300 m) ist Klippenfels vollständig deaktiviert ($0,0$): Die Ebene ist ein geschlossenes, strahlend weißes Firn-/Schneefeld.
+  * Steilwände ($>44^\circ$) sind nackter Fels, **außer** in tief eingekerbten Erosions- und Lawinenrinnen (`geomMorph.r`).
+* **Multi-Scale Triplanar-Felsrelief (Fraktale Felskanten):**
+  * Kopplung aus $24\text{ m}$ makro-tektonischen Rinnen und $5,5\text{ m}$ feinen Granit-Bruchkanten (`rockDispH_Micro`).
+  * Messerscharfer Schwellenwert (`smoothstep(0.45, 0.55, structuralRock)`): Schnee bricht an messerscharfen Felsleisten ab, statt mit 30 Meter breiten, verwaschenen Übergängen wie Kuhflecken über das 33,8m-Höhenraster zu schmieren.
+  * Couloirs und Lawinenflutungen durchschneiden dunkle $60^\circ\text{--}75^\circ$ Felswände als leuchtend weiße, messerscharfe Schneebänder.
+
+### 4. Triplanar-Schnee gegen Wandstreckung
+* **Vollständige Triplanar-Projektion für Schnee ($X, Y, Z$):**
+  * An Steilflanken und in Couloir-Rinnen wird Schnee nun ebenfalls von der Seite projiziert (`sampleTriplanarAlbedoMulti` & `sampleTriplanarNormMulti`).
+  * Jegliches vertikales Strecken oder „Herabfließen“ von Schneetexturen an Steilwänden ist vollständig eliminiert.
+
+### 5. Tiefes HBAO & Schluchten-Schwärze
+* **Verstärkte Kontakt-Occlusion in Couloirs & Talsohlen:**
+  * `contactAO` schirmt Himmelslicht und Schneeboden-Reflektionen in engen Felskerben und Wandfüßen bis auf ein tiefes Restminimum von $0,008$ ab.
+  * Schlagschatten und dunkle Schluchten erhalten monumentale geologische Schwärze und plastische Tiefenwirkung zurück.
+
+---
+
 ## 🔭 Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
@@ -519,6 +562,8 @@ Perfektionierung der Lichtstimmung, Schattentiefe und Himmelsatmosphäre ([`shad
 * [x] **Schritt 9.2 (1:1 Part VII):** Brutaler Fotorealismus: Verschärfte Triplanar-Exponenten (Null Wandstreckung), Physical Height-Blending mit Distance-Fading, Schnee-Subsurface-Scattering (SSS), Rayleigh/Mie-Atmosphärenstreuung, Talus-Schuttkegel, ACES-Highlight-Schutz & Jetstream-Schneefahnen.
 * [x] **Schritt 10 (1:1 Part VIII):** Physikalische Schnee-Kopplung (Height-Blending & Flow gegen Flecken-Optik, Fallrichtung $+Y$ & Winddrift) & Triplanar-Homogenisierung (Normal-Transformation der $X/Z$-Achsen, Exponent $w = |\mathbf{N}|^{6.0}$).
 * [x] **Schritt 11 (1:1 Part IX):** PBR-Tiefenplastizität (HBAO/Kontaktschatten in Furchen, Roughness-Splitting Fels $0,85$–$0,95$ vs. Eis $0,3$–$0,5$) & Dynamic Sky / Skybox mit weitem Rayleigh-Distanzdunst.
+* [x] **Schritt 12 (1:1 Part X):** Brutaler Felskontrast (Knochentrockener Granit Albedo ~0.16 vs. Schnee ~0.90), Fels-Roughness strikt diffus (0.88–0.98, Null Specular/Fresnel), Messerscharfe Schneegullies & Couloir-Flow (Beseitigung aller 33,8m-Kuhflecken durch Multi-Scale Displacement), Triplanar-Schnee gegen Wandstreckung & Tiefes Schluchten-HBAO.
+
 
 
 
