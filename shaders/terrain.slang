@@ -309,69 +309,52 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float elev = input.worldPos.y;
     float elevNorm = clamp((elev - pc.minElev) / max(pc.maxElev - pc.minElev, 1.0), 0.0, 1.0);
 
-    // 1:1 Satellite Ground Truth (Orbit Reflectance Guidance)
-    // Real-world satellite survey accurately identifies perennial snowfields vs bare rock cliffs
-    float satLuma = dot(satColor.rgb, float3(0.299, 0.587, 0.114));
-    float satSnowPresence = smoothstep(0.46, 0.66, satLuma);
-    float satRockPresence = 1.0 - smoothstep(0.34, 0.50, satLuma);
+    // Step 10: Physikalische Schneeablagerung (Fall- & Windrichtung, Couloir Flow)
+    // Weg von Flecken-Masken: Keine fleckigen Satelliten-Luma-Blobs mehr auf mittleren Graten!
+    // 1. Fall- und Ablagerungsrichtung: Echter Schnee fällt von oben (+Y)
+    float upAlignment = clamp(N.y, 0.0, 1.0);
+    float terraceCatch = smoothstep(0.18, 0.72, upAlignment);
 
-    // Natural Alpine Slope Limits:
-    // Compacted firn & alpine snow clings securely to slopes up to 38°-44°
-    // Cliffs steeper than 44°-52° shed snow down into couloirs, exposing raw rock
-    float cliffRockSlope = smoothstep(38.0, 50.0, slopeDeg);
-    float snowAdhesionSlope = 1.0 - smoothstep(36.0, 48.0, slopeDeg);
+    // 2. Jetstream Höhenwind-Verdriftung (Wind aus West-Nordwest 285°)
+    float2 jetstreamWindDir = normalize(float2(0.88, 0.35));
+    float windAlignment = dot(N.xz, jetstreamWindDir);
+    // Lee-Hänge (windAlignment > 0) fangen Triebschnee; Luv-Hänge (windAlignment < 0) werden abgeweht
+    float windShelter = smoothstep(-0.55, 0.45, windAlignment);
 
-    // High-Altitude Permanent Snowline (~5,400m in Khumbu/Everest)
-    float aboveSnowline = smoothstep(5100.0, 5700.0, elev);
+    // 3. Couloir & Avalanche Chute Funneling: Schnee fließt und verkeilt sich in Steilrinnen bis 60°
+    float couloirSnowCling = geomMorph.r * smoothstep(18.0, 60.0, slopeDeg) * 0.85;
 
-    // Step 9.1: Ground-Truth Geological Elevation Strata & Jetstream Wind Scour
-    // Absolute altitude control:
-    // > 8.600 m: Qomolangma-Kalkstein (dunkelgrau/schwarz, fast kein Schnee wegen Wind)
-    // 8.200 m – 8.600 m: Das berühmte Yellow Band (heller, ocker-gelblicher Dolomit-Streifen)
-    // Unter 8.200 m: Dunkler Gneis/Granit der tibetischen Zone & North Col Formation
-    float ridgeExposure = geomMorph.b;
-    float windScourSummit = smoothstep(8580.0, 8660.0, elev);
-    float jetStreamBlowOff = windScourSummit * 0.95;
-    float windScouredRidge = ridgeExposure * smoothstep(0.35, 0.90, elevNorm) * 0.55 + jetStreamBlowOff;
+    // 4. Dauerschneegrenze (~5.100m - 5.650m)
+    float aboveSnowline = smoothstep(4900.0, 5650.0, elev);
 
-    // Couloir & Chute Fluting: in carved avalanche chute troughs, firn snow clings down steep slopes up to 60°
-    float couloirFactor = geomMorph.r;
-    float couloirSnowCling = couloirFactor * smoothstep(22.0, 60.0, slopeDeg) * 0.85;
+    // 5. Orkanartiger Gipfelwind (>8.580m): Orkan reißt Schnee von freien Gipfelflächen
+    float summitWindScour = smoothstep(8580.0, 8680.0, elev) * (1.0 - smoothstep(0.85, 0.98, upAlignment));
+
+    // 6. Steilwand-Abwurf: Hänge über 40°-52° werfen Schnee ab (außer in Couloirs)
+    float cliffRockSlope = smoothstep(40.0, 52.0, slopeDeg) * (1.0 - couloirSnowCling * 0.75);
+
+    // Physikalische Schnee-Depositionsebene (0.0 = nackter Fels, 1.0 = tiefer Firn)
+    float snowPotential = (terraceCatch * 0.65 + couloirSnowCling + windShelter * 0.35) * 
+                          (0.40 + 0.60 * aboveSnowline) * (1.0 - cliffRockSlope);
+    snowPotential = clamp(snowPotential * (1.0 - summitWindScour * 0.95), 0.0, 1.0);
 
     // Horizontal Rock Strata Elevation
     float strataH = elev - 0.22 * input.worldPos.z;
 
-    // 1. Rock Weight: Sheer cliffs (>44°-50°) + wind-scoured ridges + satellite-verified rock faces
-    float naturalRock = clamp(cliffRockSlope + windScouredRidge, 0.0, 1.0);
-    float rockWeight = clamp(naturalRock * 0.65 + satRockPresence * 0.55 + windScouredRidge * 0.45, 0.0, 1.0);
+    // Unbelegter Steilwand-Fels
+    float rockPotential = clamp(cliffRockSlope + summitWindScour * 0.80 + geomMorph.b * 0.35 * (1.0 - snowPotential), 0.0, 1.0);
 
-    // 2. Snow Weight: All high-altitude terrain below cliff angle + couloirs + satellite snow
-    float alpineSnow = clamp(snowAdhesionSlope * (0.65 + 0.35 * aboveSnowline) + couloirSnowCling, 0.0, 1.0);
-    float snowWeight = clamp(lerp(alpineSnow, 1.0, satSnowPresence * 0.75 * (1.0 - cliffRockSlope * 0.85)), 0.0, 1.0) * (1.0 - rockWeight * 0.88);
-
-    // Above 8,600m on the summit pyramid, hurricane jetstream winds blow snow off all exposed slopes (>10°),
-    // leaving the dark Qomolangma limestone dramatically exposed
-    float summitSnowRetain = 1.0 - windScourSummit * smoothstep(8.0, 22.0, slopeDeg) * 0.96;
-    snowWeight *= summitSnowRetain;
-    rockWeight = clamp(rockWeight + windScourSummit * smoothstep(10.0, 25.0, slopeDeg) * 0.70, 0.0, 1.0);
-
-    // 3. Glacier Ice: Khumbu Valley glacier tongue (4,700m - 5,450m on gentle valley floors)
+    // Glacier Ice: Khumbu Valley glacier tongue (4,700m - 5,450m on gentle valley floors)
     float glacierElev = smoothstep(4650.0, 4950.0, elev) * (1.0 - smoothstep(5350.0, 5550.0, elev));
-    float glacierWeight = glacierElev * (1.0 - smoothstep(16.0, 24.0, slopeDeg)) * (1.0 - rockWeight) * 0.85;
+    float glacierWeight = glacierElev * (1.0 - smoothstep(14.0, 24.0, slopeDeg)) * (1.0 - rockPotential) * 0.85;
 
-    // 4. Scree / Moraine: ONLY below the snowline (<5,600m) in valleys and on talus cones!
-    // Above 5,700m in the Death Zone, scree is almost zero (high terrain is 100% snow/ice/rock)!
-    float talusConeBoost = geomMorph.g * 1.5;
-    float screeAllowed = (1.0 - aboveSnowline * 0.88);
-    float screeWeight = max(0.0, 1.0 - rockWeight - snowWeight - glacierWeight) * screeAllowed;
-
-    // Step 9.2: Dynamic Talus Scree Fans at Cliff Bases
-    // At the angle of repose (24°-36°), rock debris falls from cliffs and accumulates in fans
+    // Scree / Moraine on talus cones below snowline
     float screeFooting = geomMorph.g * smoothstep(44.0, 26.0, slopeDeg) * (1.0 - aboveSnowline * 0.65);
-    screeWeight = clamp(screeWeight + screeFooting * 0.85, 0.0, 1.0);
+    float screeWeight = screeFooting * (1.0 - rockPotential - glacierWeight);
 
-    // Reallocate any remaining suppressed scree weight above snowline to snow
-    snowWeight += max(0.0, 1.0 - rockWeight - snowWeight - glacierWeight - screeWeight);
+    // Snow base weight
+    float snowWeight = clamp(snowPotential * (1.0 - glacierWeight - screeWeight), 0.0, 1.0);
+    float rockWeight = clamp(1.0 - snowWeight - glacierWeight - screeWeight, 0.0, 1.0);
 
     // Normalize material weights
     float totalW = rockWeight + snowWeight + screeWeight + glacierWeight;
@@ -384,10 +367,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         snowWeight = 1.0;
     }
 
-    // Step 9.2: Sharpened Slope-Adaptive Triplanar Blend Exponent
-    // Steep vertical cliffs (>30°) demand high blend power (8.0-10.0) to eliminate vertical texture dripping/smearing!
-    float triplanarPower = lerp(4.0, 10.0, smoothstep(22.0, 52.0, geomSlopeDeg));
-    float3 blendWeights = pow(abs(N), float3(triplanarPower, triplanarPower, triplanarPower));
+    // Step 10: Triplanar-Projektion auf allen Achsen homogenisieren
+    // Blend-Exponent w = pow(|N|, 6.0) verhindert vertikales Abschmieren an Steilflanken
+    float3 blendWeights = pow(abs(N), float3(6.0, 6.0, 6.0));
     blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z + 0.00001);
 
     // Sample Triplanar Rock Albedo with Multi-Scale Distance-Tiled Anti-Tiling (eliminates waffle/honeycomb tiling!)
@@ -401,10 +383,22 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 rockNormY = sampleTriplanarNormMulti(texRockNormal, input.worldPos.xz, distToCam);
     float3 rockNormZ = sampleTriplanarNormMulti(texRockNormal, input.worldPos.xy, distToCam);
 
-    // World-space normal reorientation for triplanar projection
-    float3 wNormX = float3(rockNormX.z * sign(N.x), rockNormX.y, rockNormX.x * sign(N.x));
-    float3 wNormY = float3(rockNormY.x, rockNormY.z * sign(N.y), rockNormY.y);
-    float3 wNormZ = float3(rockNormZ.x, rockNormZ.y, rockNormZ.z * sign(N.z));
+    // Step 10: Homogenisierte Orthonormale Tangentenraum-Transformation für X, Y und Z
+    // Behebt Invertierungen und "flache Schalen" in Mulden und Gegenhängen vollständig!
+    float signX = (N.x >= 0.0) ? 1.0 : -1.0;
+    float signY = (N.y >= 0.0) ? 1.0 : -1.0;
+    float signZ = (N.z >= 0.0) ? 1.0 : -1.0;
+
+    // X-Projektion: U = worldPos.z, V = worldPos.y, Normal = X
+    float3 wNormX = float3(rockNormX.z * signX, rockNormX.y, rockNormX.x * signX);
+
+    // Y-Projektion: U = worldPos.x, V = worldPos.z, Normal = Y
+    float3 wNormY = float3(rockNormY.x, rockNormY.z * signY, rockNormY.y * signY);
+
+    // Z-Projektion: U = worldPos.x, V = worldPos.y, Normal = Z
+    // Tangente und Normale müssen beide mit signZ transformiert werden!
+    float3 wNormZ = float3(rockNormZ.x * signZ, rockNormZ.y, rockNormZ.z * signZ);
+
     float3 triplanarRockNormal = normalize(wNormX * blendWeights.x + wNormY * blendWeights.y + wNormZ * blendWeights.z);
 
     // Triplanar Rock Roughness with Multi-Scale Distance-Tiling
@@ -491,18 +485,19 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 planarNorm = snowNorm * snowWeight + screeNorm * screeWeight + glacierNorm * glacierWeight;
     float planarRough = snowRough * snowWeight + screeRough * screeWeight + glacierRough * glacierWeight;
 
-    // Step 9.2: Physical Height-Blending with Distance Fading
-    // Close to camera (<120m): snow physically settles into rock crevices and depressions first.
-    // At distance (>120m): fades smoothly into continuous macro blending, completely eliminating distant moiré/screen artifacts!
+    // Step 10: Schneeablagerung physikalisch koppeln (Height-Blending & Flow)
+    // Weg von Flecken-Masken: Schneemaske direkt an Heightmap der Felswand gekoppelt:
+    // height_mask = saturate((rock_height - snow_level) * sharpness)
+    // Schnee sammelt sich physikalisch nur in den Tälern, Furchen und Rillen der Normal-/Heightmap!
     float snowHeight = texSnowDisp.Sample(snowUV).r;
-    float heightBlendDistFade = clamp(1.0 - distToCam / 120.0, 0.0, 1.0);
-    float heightModulation = heightBlendDistFade * 0.18;
+    float distFade = clamp(1.0 - distToCam / 220.0, 0.0, 1.0);
+    float sharpness = lerp(2.2, 6.5, distFade);
 
-    float rockHeightScore = rockWeight + (rockHeight - 0.5) * heightModulation;
-    float groundHeightScore = (1.0 - rockWeight) + (snowHeight - 0.5) * heightModulation;
-    float heightDiff = rockHeightScore - groundHeightScore;
-    float rockBlendLocal = smoothstep(-0.08, 0.08, heightDiff);
-    float rockBlendFactor = lerp(rockWeight, rockBlendLocal, heightBlendDistFade);
+    // Schneepegel (snow_level) basierend auf physikalischem Schnee-Eintrag
+    float snow_level = clamp((1.0 - rockWeight) + (snowHeight - 0.5) * (distFade * 0.16), 0.0, 1.0);
+    // rock_height > snow_level -> erhabener Fels (1.0); rock_height < snow_level -> Schnee füllt Rille (0.0)
+    float heightMask = clamp((rockHeight - snow_level) * sharpness + 0.5, 0.0, 1.0);
+    float rockBlendFactor = lerp(rockWeight, heightMask, distFade);
 
     // Composite Triplanar Rock with Planar Ground using Height-Blend factor
     float3 detailAlbedo = triplanarRockAlbedo * rockBlendFactor + planarAlbedo * (1.0 - rockBlendFactor);

@@ -448,25 +448,28 @@ In Schritt 9.2 (1:1 Part VII) wurde das Terrain über vier Kernbereiche von eine
 
 ---
 
-## 🏔️ Schritt 10: Physikalische Schnee-Kopplung & Triplanar-Homogenisierung (1:1 Part VIII - Geplant)
+## 🏔️ Schritt 10: Physikalische Schnee-Kopplung & Triplanar-Homogenisierung (1:1 Part VIII - Abgeschlossen)
 
-Zur Beseitigung unnatürlicher Texturübergänge und zur physikalischen Verankerung von Schnee und Fels:
+Beseitigung unnatürlicher Texturübergänge und physikalische Verankerung von Schnee und Fels ([`shaders/terrain.slang`](shaders/terrain.slang)):
 
 ### 1. Schneeablagerung physikalisch koppeln (Height-Blending & Flow)
-* **Weg von Flecken-Masken:**
-  * Auf den mittleren Graten wirkt der Schnee teilweise noch wie aufgemalte "Kuhflecken".
-  * Die Schneemaske wird direkt an die Heightmap der Felswand gekoppelt: Schnee darf sich physikalisch nur in den Tälern, Furchen und Rillen der Normal-/Heightmap sammeln:
-    $$\text{height\_mask} = \text{saturate}((\text{rock\_height} - \text{snow\_level}) \cdot \text{sharpness})$$
-* **Wind- und Fallrichtung einbauen:**
-  * Echter Schnee fällt von oben ($+Y$) und wird vom Jetstream verdriftet.
-  * Nutzung von $\mathbf{N} \cdot \mathbf{up}$ kombiniert mit einem Richtungsvektor für den Höhenwind, damit Schnee vorwiegend auf horizontalen Terrassen, Firnkaren und in windabgewandten Rinnen (Lee) haften bleibt, während exponierte Luv-Kanten abgeweht werden.
+* **Eliminierung der Flecken-Masken ("Kuhflecken"):**
+  * Frühere fleckenhafte Satelliten-Luma-Verfärbungen auf Mittelgraten wurden vollständig durch ein physikalisches Depositionspotenzial ersetzt.
+  * Die Schneemaske ist direkt an die Heightmap der Felswand gekoppelt: Schnee sammelt sich physikalisch nur in den Tälern, Furchen und Rillen der Normal-/Heightmap:
+    $$\text{height\_mask} = \text{clamp}((\text{rock\_height} - \text{snow\_level}) \cdot \text{sharpness} + 0.5, 0.0, 1.0)$$
+  * Zur Verhinderung von Bildschirmmoiré auf Distanz fadet die Schärfe über 220 m Entfernung sanft ab.
+* **Gravitations- & Jetstream-Winddrift-Modell:**
+  * Gravitativer Fall ($+Y$, $\mathbf{N} \cdot \mathbf{up}$) fängt Schnee auf horizontalen Terrassen und Firnkaren (`terraceCatch`).
+  * WNW-Höhenwindvektor (Jetstream $285^\circ$, `float2(0.88, 0.35)`) berechnet Exposition vs. Lee-Schutz: Schnee bleibt in windabgewandten Rinnen haften, während windzugewandte Luv-Kanten abgeweht werden (`windShelter`).
+  * Steilhänge $>40^\circ\text{--}52^\circ$ werfen Schnee durch Gravitation ab (`cliffRockSlope`), außer in durch Eiserosion eingekerbten Lawinenrinnen (`couloirSnowCling`).
+  * Orkanartiger Gipfelwind ($>8.580\text{ m}$) entreißt exponierten Graten die Schneedecke und legt den dunklen Qomolangma-Kalkstein frei.
 
 ### 2. Triplanar-Projektion auf allen Achsen homogenisieren
 * **Fixierung steiler Flanken:**
-  * An Steilflanken wird jegliches vertikales Abschmieren des Gesteins durch homogene Achsenskalierung und einen gezielten Schärfe-Exponenten beim Blenden der Projektionsachsen eliminiert:
-    $$w = \text{pow}(\vert\mathbf{N}\vert, 6.0)$$
-* **Korrekter Tangentenraum auf den Projektionsachsen ($X$ und $Z$):**
-  * Transformation der Normal-Maps mit dem exakten Tangentenraum der jeweiligen Projektionsachse, um „flache Schalen“ in Mulden zu vermeiden und plastische Felsstrukturen aus jedem Blickwinkel beizubehalten.
+  * Homogener Blend-Exponent $w = \text{pow}(\vert\mathbf{N}\vert, 6.0)$ verhindert jegliches vertikale Abfließen oder Schmieren an Steilflanken.
+* **Orthonormale Tangentenraum-Transformation ($X$, $Y$, $Z$):**
+  * Z-Achsen-Projektionen transformieren sowohl Tangente als auch Normale mit $\text{sign}(N_z)$ (`wNormZ = float3(rockNormZ.x * signZ, rockNormZ.y, rockNormZ.z * signZ)`).
+  * Behebt Invertierungsfehler und „flache Schalen“ (konkave Wölbung statt plastischem Relief) an Nordhängen und Gegenwänden vollständig.
 
 ---
 
@@ -504,7 +507,7 @@ Zur Perfektionierung der Lichtstimmung, Schattentiefe und Himmelsatmosphäre:
 * [x] **Schritt 9 (1:1 Part V):** Geomorphologischer 1:1 Echtwelt-Abgleich: Entschärfung des über-spitzen Nadel-Looks zu massiven Monumental-Sockeln & akkurate Schnee/Fels-Balance (Hängegletscher, Firnkare, Felsband-Schneeterrassen).
 * [x] **Schritt 9.1 (1:1 Part VI):** GPU-Tessellation / Virtual Heightfield (Auflösung der 33,8 m Kanten via Detail-Displacement), Multi-Scale Sobel-Normal-Baking & Geologisches Höhen-Banding (>8.600m Qomolangma mit Jetstream Wind-Scour, 8.200m–8.600m Yellow Band, <8.200m Gneis/Granit).
 * [x] **Schritt 9.2 (1:1 Part VII):** Brutaler Fotorealismus: Verschärfte Triplanar-Exponenten (Null Wandstreckung), Physical Height-Blending mit Distance-Fading, Schnee-Subsurface-Scattering (SSS), Rayleigh/Mie-Atmosphärenstreuung, Talus-Schuttkegel, ACES-Highlight-Schutz & Jetstream-Schneefahnen.
-* [ ] **Schritt 10 (1:1 Part VIII):** Physikalische Schnee-Kopplung (Height-Blending & Flow gegen Flecken-Optik, Fallrichtung $+Y$ & Winddrift) & Triplanar-Homogenisierung (Normal-Transformation der $X/Z$-Achsen, Exponent $w = |\mathbf{N}|^{6.0}$).
+* [x] **Schritt 10 (1:1 Part VIII):** Physikalische Schnee-Kopplung (Height-Blending & Flow gegen Flecken-Optik, Fallrichtung $+Y$ & Winddrift) & Triplanar-Homogenisierung (Normal-Transformation der $X/Z$-Achsen, Exponent $w = |\mathbf{N}|^{6.0}$).
 * [ ] **Schritt 11 (1:1 Part IX):** PBR-Tiefenplastizität (HBAO/Kontaktschatten in Furchen, Roughness-Splitting Fels $0,85$–$0,95$ vs. Eis $0,3$–$0,5$) & Dynamic Sky / Skybox mit weitem Rayleigh-Distanzdunst.
 
 
