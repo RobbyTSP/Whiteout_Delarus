@@ -61,6 +61,8 @@ endfunction()
 # Register Slang shaders
 add_slang_shader("terrain.slang" "vertex" "vertexMain" "terrain_vert.spv")
 add_slang_shader("terrain.slang" "fragment" "fragmentMain" "terrain_frag.spv")
+add_slang_shader("sky.slang" "vertex" "vertexMain" "sky_vert.spv")
+add_slang_shader("sky.slang" "fragment" "fragmentMain" "sky_frag.spv")
 
 add_custom_target(compile_shaders ALL DEPENDS ${SPV_TARGETS})
 

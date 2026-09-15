@@ -28,6 +28,18 @@ Renderer::Renderer(core::Window& window)
         fragSpv
     );
 
+    std::string skyVertSpv = SHADER_DIR "/sky_vert.spv";
+    std::string skyFragSpv = SHADER_DIR "/sky_frag.spv";
+
+    m_skyPipeline = std::make_unique<rhi::VulkanPipeline>(
+        *m_context,
+        m_swapchain->getImageFormat(),
+        m_swapchain->getDepthFormat(),
+        skyVertSpv,
+        skyFragSpv,
+        true // isSky
+    );
+
     createCommandBuffers();
     initSyncObjects();
     initTexturesAndDescriptors();
@@ -497,10 +509,7 @@ void Renderer::renderFrame(
     scissor.extent = m_swapchain->getExtent();
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // Bind Pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->getHandle());
-
-    // Push Constants for Slang Shader
+    // Push Constants for Slang Shaders (Shared by Sky & Terrain)
     rhi::TerrainPushConstants pushConstants{};
     pushConstants.model = glm::mat4(1.0f);
     pushConstants.view = camera.getViewMatrix();
@@ -513,6 +522,22 @@ void Renderer::renderFrame(
     pushConstants.maxElev = m_maxElevation;
     pushConstants.cloudBase = cloudBase;
 
+    // Step 11: 1. Draw Stratospheric Dynamic Sky (Fullscreen Triangle from SV_VertexID)
+    if (m_skyPipeline) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_skyPipeline->getHandle());
+        vkCmdPushConstants(
+            cmd,
+            m_skyPipeline->getLayout(),
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0,
+            sizeof(rhi::TerrainPushConstants),
+            &pushConstants
+        );
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
+
+    // 2. Draw Terrain Mesh (Occludes sky where mountains are present)
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->getHandle());
     vkCmdPushConstants(
         cmd,
         m_pipeline->getLayout(),

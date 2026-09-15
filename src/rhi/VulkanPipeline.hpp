@@ -38,7 +38,8 @@ public:
         VkFormat colorFormat,
         VkFormat depthFormat,
         const std::string& vertSpvPath,
-        const std::string& fragSpvPath
+        const std::string& fragSpvPath,
+        bool isSky = false
     );
     ~VulkanPipeline();
 

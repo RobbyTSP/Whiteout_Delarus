@@ -45,6 +45,7 @@ private:
     std::unique_ptr<rhi::VulkanContext> m_context;
     std::unique_ptr<rhi::VulkanSwapchain> m_swapchain;
     std::unique_ptr<rhi::VulkanPipeline> m_pipeline;
+    std::unique_ptr<rhi::VulkanPipeline> m_skyPipeline;
 
     // Terrain geometry
     std::unique_ptr<rhi::VulkanBuffer> m_vertexBuffer;

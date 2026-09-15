@@ -473,24 +473,34 @@ Beseitigung unnatürlicher Texturübergänge und physikalische Verankerung von S
 
 ---
 
-## 🏔️ Schritt 11: PBR-Tiefenplastizität, Dynamic Sky / Skybox & Rayleigh-Dunst (1:1 Part IX - Geplant)
+## 🏔️ Schritt 11: PBR-Tiefenplastizität, Dynamic Sky / Skybox & Rayleigh-Dunst (1:1 Part IX - Abgeschlossen)
 
-Zur Perfektionierung der Lichtstimmung, Schattentiefe und Himmelsatmosphäre:
+Perfektionierung der Lichtstimmung, Schattentiefe und Himmelsatmosphäre ([`shaders/sky.slang`](shaders/sky.slang) & [`shaders/terrain.slang`](shaders/terrain.slang)):
 
 ### 1. Beleuchtung & Tiefenplastizität (PBR)
-* **HBAO / Screen-Space & Contact Occlusion:**
-  * In den engen Falten zwischen den Graten und in tiefen Schluchten fehlt das tiefe Umgebungsdunkel, in das kein Himmelslicht vordringt.
-  * Tiefe Kontaktschatten in Furchen und Mulden nehmen dem Gelände das verbleibende Polygon-Gefühl und erzeugen monumentale Masse.
-* **Roughness-Splitting:**
-  * Fels benötigt hohe Rauheit ($0,85$–$0,95$), während gefrorener Schnee, Firn und Eislinsen in Rinnen niedrigere Werte ($0,3$–$0,5$) mit gerichtetem Specular-Highlight erhalten, an denen das Sonnenlicht bricht.
+* **Multi-Scale HBAO & Deep Contact Occlusion:**
+  * In tiefen Schluchten, engen Couloirs (`geomMorph.r`), konkaven Wandfüßen (`geomMorph.g`) und Mikrofissuren (`dot(N, geomN)`) wurde eine mehrskalige Kontaktschatten-Berechnung implementiert:
+    $$\text{contactAO} = \text{clamp}\left(\text{geomMorph.a}^{1.5} \cdot (1 - \text{cavity} \cdot 0.52) \cdot (1 - \text{talusFooting}) \cdot (1 - \text{microCrevice}), 0.06, 1.0\right)$$
+  * Schirmt Himmelslicht (`skyLight`), Schneereflektion (`snowGroundBounce`) und Gegenhang-Bounce in Spalten stark ab ($\text{pow}(\text{contactAO}, 1.4)$).
+  * Tiefe Kontaktschatten in Furchen und Mulden nehmen dem Gelände jeglichen verbleibenden Game-Engine-Mesh-Charakter und erzeugen monumentale geologische Masse.
+* **Roughness-Splitting & Directed Specular Glints:**
+  * **Fels:** Granit und Qomolangma-Kalkstein sind strikt rau und reflexionsfrei gemappt ($\text{roughness} = 0,85$–$0,95$, keine speckigen Glanzstellen).
+  * **Schnee, Firn & Couloir-Eislinsen:** Gefrorener Firn und Eisströme in Rinnen erhalten deutlich niedrigere Rauheitswerte ($0,30$–$0,50$).
+  * Gerichtetes Specular-Highlighting bricht das Sonnenlicht mit messerscharfen Glanzfacetten entlang vereister Couloirs und am Khumbu-Gletscher, während umliegende Felswände komplett matt bleiben.
 
-### 2. Atmosphäre & Himmel (Dynamic Sky / Skybox)
-* **Skybox / Dynamic Sky:**
-  * Das neutrale Grau-Blau des Himmels wird durch einen dynamischen atmosphärischen Gradienten mit Sonnenstand oder eine hochaufgelöste HDR-Skybox ersetzt.
-  * Liefert physikalisch fundierte Einstrahlung und farbig nuanciertes Umgebungslicht (Ambient Light).
-* **Rayleigh-Scattering & Distanzdunst:**
-  * Die hintersten Achttausender-Massive müssen über die Distanz messbar bläulicher, weicher und kontrastärmer werden.
-  * Ein Exponential-Height-Fog, der mit der Distanz zur Kamera zunimmt, verdoppelt optisch die Weite des Himalayas.
+### 2. Atmosphäre & Himmel (Dynamic Sky / Skybox & Rayleigh-Dunst)
+* **Stratosphärischer Dynamic Sky Shader ([`shaders/sky.slang`](shaders/sky.slang)):**
+  * Eigener Vulkan-Grafikpipeline-Pass mit prozeduraler Himmelskuppel (Fullscreen-Dreieck aus `SV_VertexID`), gezeichnet vor dem Terrain:
+  * **Höhengradient ins Weltall:** Im Tal sattes Alpin-Azur (`float3(0.12, 0.24, 0.54)`), über 8.000 m Übergang in tiefdunkles stratosphärisches Indigo-Navy (`float3(0.022, 0.040, 0.13)`).
+  * **Alpenglühen & Belt of Venus:** Bei Sonnenauf- und -untergang taucht eine intensive Rayleigh-Auslöschung den Horizont in glühendes Orange, Bernstein und Roségold, während auf der Gegenseite der zartrosa Venusgürtel über dem blauen Erdschatten aufsteigt.
+  * **Sonnenscheibe & Mie-Korona:** Scharfe Sonnenscheibe ($0,5^\circ$ Winkeldurchmesser) mit intensiv vorwärts-streuender Eiskristall-Aureole und Sonnenkorona.
+  * **Blizzard-Integration:** Bei Sturm nahtloser Übergang in eine diffuse weiße Schneesturm-Nebelkuppel.
+  * Farb- und Belichtungskonsistenz durch identisches ACES Filmic Tonemapping ($exposure = 0,82$).
+* **Rayleigh-Scattering & Exponential-Height-Fog:**
+  * Implementierung eines physikalischen Höhen-Dunstepos in [`shaders/terrain.slang`](shaders/terrain.slang):
+    $$\rho(h) = \exp\left(-\frac{\max(0, h - 4200)}{1800}\right)$$
+  * Täler und Fußregionen liegen in atmosphärischem Dunst, während die Gipfelkämme kristallklar in die Stratosphäre ragen.
+  * Hintere Bergmassive ($>10\text{ km}$) werden physikalisch tiefblau (Rayleigh Blueing) und verlieren Blendkontraste, wodurch sich die optische Raumtiefe des Himalayas vervielfacht.
 
 ---
 
@@ -508,7 +518,7 @@ Zur Perfektionierung der Lichtstimmung, Schattentiefe und Himmelsatmosphäre:
 * [x] **Schritt 9.1 (1:1 Part VI):** GPU-Tessellation / Virtual Heightfield (Auflösung der 33,8 m Kanten via Detail-Displacement), Multi-Scale Sobel-Normal-Baking & Geologisches Höhen-Banding (>8.600m Qomolangma mit Jetstream Wind-Scour, 8.200m–8.600m Yellow Band, <8.200m Gneis/Granit).
 * [x] **Schritt 9.2 (1:1 Part VII):** Brutaler Fotorealismus: Verschärfte Triplanar-Exponenten (Null Wandstreckung), Physical Height-Blending mit Distance-Fading, Schnee-Subsurface-Scattering (SSS), Rayleigh/Mie-Atmosphärenstreuung, Talus-Schuttkegel, ACES-Highlight-Schutz & Jetstream-Schneefahnen.
 * [x] **Schritt 10 (1:1 Part VIII):** Physikalische Schnee-Kopplung (Height-Blending & Flow gegen Flecken-Optik, Fallrichtung $+Y$ & Winddrift) & Triplanar-Homogenisierung (Normal-Transformation der $X/Z$-Achsen, Exponent $w = |\mathbf{N}|^{6.0}$).
-* [ ] **Schritt 11 (1:1 Part IX):** PBR-Tiefenplastizität (HBAO/Kontaktschatten in Furchen, Roughness-Splitting Fels $0,85$–$0,95$ vs. Eis $0,3$–$0,5$) & Dynamic Sky / Skybox mit weitem Rayleigh-Distanzdunst.
+* [x] **Schritt 11 (1:1 Part IX):** PBR-Tiefenplastizität (HBAO/Kontaktschatten in Furchen, Roughness-Splitting Fels $0,85$–$0,95$ vs. Eis $0,3$–$0,5$) & Dynamic Sky / Skybox mit weitem Rayleigh-Distanzdunst.
 
 
 

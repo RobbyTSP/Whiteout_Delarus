@@ -43,7 +43,8 @@ VulkanPipeline::VulkanPipeline(
     VkFormat colorFormat,
     VkFormat depthFormat,
     const std::string& vertSpvPath,
-    const std::string& fragSpvPath
+    const std::string& fragSpvPath,
+    bool isSky
 ) : m_context(context) {
     VkDevice device = m_context.getDevice();
 
@@ -71,10 +72,17 @@ VulkanPipeline::VulkanPipeline(
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 1;
-    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+    if (!isSky) {
+        vertexInputInfo.vertexBindingDescriptionCount = 1;
+        vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+        vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+    } else {
+        vertexInputInfo.vertexBindingDescriptionCount = 0;
+        vertexInputInfo.pVertexBindingDescriptions = nullptr;
+        vertexInputInfo.vertexAttributeDescriptionCount = 0;
+        vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+    }
 
     // 3. Input Assembly
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -117,8 +125,8 @@ VulkanPipeline::VulkanPipeline(
     // 7. Depth & Stencil
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
     depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable = VK_TRUE;
-    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthTestEnable = isSky ? VK_FALSE : VK_TRUE;
+    depthStencil.depthWriteEnable = isSky ? VK_FALSE : VK_TRUE;
     depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable = VK_FALSE;
@@ -137,23 +145,25 @@ VulkanPipeline::VulkanPipeline(
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
-    // 9. Descriptor Set Layout for 19 Texture Samplers (Satellite, Normal, Geomorphology, 4x PBR Sets)
-    std::vector<VkDescriptorSetLayoutBinding> samplerBindings(19);
-    for (uint32_t i = 0; i < 19; i++) {
-        samplerBindings[i].binding = i;
-        samplerBindings[i].descriptorCount = 1;
-        samplerBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        samplerBindings[i].pImmutableSamplers = nullptr;
-        samplerBindings[i].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    }
+    if (!isSky) {
+        // 9. Descriptor Set Layout for 19 Texture Samplers (Satellite, Normal, Geomorphology, 4x PBR Sets)
+        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(19);
+        for (uint32_t i = 0; i < 19; i++) {
+            samplerBindings[i].binding = i;
+            samplerBindings[i].descriptorCount = 1;
+            samplerBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            samplerBindings[i].pImmutableSamplers = nullptr;
+            samplerBindings[i].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        }
 
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = static_cast<uint32_t>(samplerBindings.size());
-    layoutInfo.pBindings = samplerBindings.data();
+        VkDescriptorSetLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.bindingCount = static_cast<uint32_t>(samplerBindings.size());
+        layoutInfo.pBindings = samplerBindings.data();
 
-    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create descriptor set layout for terrain textures!");
+        if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create descriptor set layout for terrain textures!");
+        }
     }
 
     // 10. Pipeline Layout with Push Constants & Descriptors
@@ -164,8 +174,8 @@ VulkanPipeline::VulkanPipeline(
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &m_descriptorSetLayout;
+    pipelineLayoutInfo.setLayoutCount = (m_descriptorSetLayout != VK_NULL_HANDLE) ? 1 : 0;
+    pipelineLayoutInfo.pSetLayouts = (m_descriptorSetLayout != VK_NULL_HANDLE) ? &m_descriptorSetLayout : nullptr;
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
