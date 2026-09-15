@@ -626,6 +626,47 @@ Fundamentale Beseitigung aller Artefakte aus Schwellenwert-Clipping und ungesch�
 * [x] **Schritt 12 (1:1 Part X):** Brutaler Felskontrast (Knochentrockener Granit Albedo ~0.16 vs. Schnee ~0.90), Fels-Roughness strikt diffus (0.88–0.98, Null Specular/Fresnel), Messerscharfe Schneegullies & Couloir-Flow (Beseitigung aller 33,8m-Kuhflecken durch Multi-Scale Displacement), Triplanar-Schnee gegen Wandstreckung & Tiefes Schluchten-HBAO.
 * [x] **Schritt 13 (1:1 Part XI):** Leopardenmuster-Eliminierung via Physical Height-Blend (`snowMask = saturate(((1.0 - rockHeight) + snowAmount - 1.0) * blendSharpness)`), Slope-Primärfilter ($>45^\circ$ reiner Fels außer Couloirs), Multi-Scale Domain-Warped Displacement, Exponentielle Triplanar-Schärfung `pow(|N|, 8.0)`, Tangentenraum-Paritätskorrektur ($X, Y, Z$), PBR-Roughness-Trennung (Fels $0,88$–$0,96$ diffus vs. Firn $0,35$–$0,55$ spiegelnd), Schnee-Translucency (SSS), Weltkoordinaten-$Y$ Geologie (Qomolangma-Kalkstein, Yellow Band, Basiskristallin) & 30+ km Rayleigh-Distanzdunst.
 
+### 🏔️ Phase A: Das fundamentale High-End-Rendering (Schritte 14–18)
+* [ ] **Schritt 14 (1:1 Part XII): Monumentale Bergschatten & 35-km DEM Cone-Tracing:**
+  * Hardware-beschleunigtes Raymarching durch das $1024 \times 1024$ Höhengitter direkt auf der GPU.
+  * Echter 35-Kilometer-Schattenwurf: Der Mount Everest und die Lhotse-Wand werfen morgens und abends riesige, messerscharfe Pyramidenschatten über das Khumbu-Tal und Tibet mit weicher Halbschatten-Penumbra ($0,53^\circ$ Sonnendurchmesser).
+  * Screen-Space Contact Shadows (SSCS) für Felsspalten und Blöcke im Nahbereich.
+* [ ] **Schritt 15 (1:1 Part XIII): Khumbu-Gletscher & Eisfall-Dynamik:**
+  * Prozedurales Fließspannungs-Gitter (Strain-Tensor): An Geländestufen brechen echte 25 Meter tiefe Gletscherspalten (Crevasses) und turmhohe, instabile Serac-Eisnadeln auf.
+  * Spektrale Lichtabsorption im Gletschereis: Rotes Licht wird $100\times$ stärker absorbiert als blaues – Spalten leuchten von innen heraus in magischem Kobalt- und Azurblau.
+  * Supraglaziale Schmelzwassertümpel auf dem Moränengrund mit physikalischem Brechungsindex.
+* [ ] **Schritt 16 (1:1 Part XIV): Stratosphären-Optik & Eiskristall-Halos:**
+  * Barometrische Dichteverteilung der Todeszone ($337\text{ hPa}$): Der Himmel dunkelt am Gipfel in tiefes Kosmos-Schwarzblau ab; Sterne werden tagsüber sichtbar.
+  * Chappuis-Ozonabsorption (550–650 nm) für intensives Alpenglühen-Zenitlicht.
+  * Eiskristall-Atmosphärenoptik: Physikalischer $22^\circ$-Halo um die Sonne, Nebensonnen (Parhelia) und Lichtsäulen bei Dämmerung.
+* [ ] **Schritt 17 (1:1 Part XV): Photometrische HDR-Kamera & Human Eye Adaptation:**
+  * Compute-gestützte 64-Bin Log-Luminanz-Histogramm-Analyse für über $100.000:1$ Dynamikumfang ($120.000\text{ Lux}$ Mittagssonne auf Firn vs. $<800\text{ Lux}$ Felsnischen).
+  * Organische Pupillenadaption beim Blickwechsel zwischen Schattenwänden und gleißendem Gipfelfirn.
+  * Anamorpher Dual-Pass Eiskristall-Glare & Beugungssterne (Sunstars).
+* [ ] **Schritt 18 (1:1 Part XVI): CDLOD / Nanite-Level Mikro-Terrain (0,25m Kletter-Auflösung):**
+  * Continuous Distance LOD: Dynamische Quadtree-Unterteilung auf bis zu $0,25\text{ m}$ Gitterabstand im 40-Meter-Nahbereich des Spielers.
+  * Photogrammetrie-Hotspots für Schlüsselstellen (Hillary Step, Third Step, South Col) mit zentimetergenauen Kletterkanten, Flechtenbewuchs (*Xanthoria elegans*) und Felsblock-Instancing.
+
+### 🌌 Phase B: Das absolute Maximum – Meilenweit voraus (Schritte 19–23)
+* [ ] **Schritt 19 (1:1 Part XVII): Hardware Ray-Traced Multi-Bounce GI (Das Western Cwm Phänomen):**
+  * Vulkan Hardware Ray Tracing (`VK_KHR_ray_tracing_pipeline` / ReSTIR GI).
+  * Bis zu 8 indirekte Licht-Bounces im 3.000 Meter tiefen Kar zwischen Everest, Lhotse und Nuptse: Das legendäre „Glutofen“-Schneelicht des Western Cwm, bei dem selbst tiefste Schatten gleißend weiß strahlen.
+* [ ] **Schritt 20 (1:1 Part XVIII): Dynamische Schnee- & Lawinen-Physik (MPM - Material Point Method):**
+  * GPU-basierte Material Point Method für nicht-Newtonschen Schnee: Harschkrusten brechen unter Steigeisen ein und hinterlassen verdichtete Trittspuren.
+  * Aktiver Höhenwind verweht Schnee zu überhängenden Kantenwechten, die bei Betreten physikalisch abbrechen.
+  * Echtzeit-Staublawinen mit tosenden Pulverschneewolken von der Lhotse-Wand.
+* [ ] **Schritt 21 (1:1 Part XIX): 3D Gaussian Splatting Photogrammetrie-Hotspots:**
+  * Direkte Integration von 3D Gaussian Splats in die Vulkan-Pipeline für den Hillary Step, das Gipfelplateau mit Gebetsfahnen und den Südsattel.
+  * Fotorealismus in 8K Ground-Truth bis auf wenige Millimeter Betrachtungsabstand.
+* [ ] **Schritt 22 (1:1 Part XX): Viszerale Bergsteiger-Kryo-Optik:**
+  * Physikalische Kategorie-4-Gletscherbrille mit Brewster-Winkel-Polarisation gegen Schneeblendung.
+  * Atem-Kondensation und gefrierende Eisblumen an den Rändern der Gletscherbrille bei Anstrengung.
+  * Hypoxie- & Höhenrausch-Shader in der Todeszone: Periphere Sichtfeldeinengung (Tunnelblick), Entsättigung und Pulsieren im Takt der Herzfrequenz.
+* [ ] **Schritt 23 (1:1 Part XXI): Wave-Based Alpine Audio Raytracing:**
+  * Akustisches Raytracing im $35\text{ km}$ Höhenmodell mit Infraschall-Echos brechender Eistürme an der 3.000 m hohen Nuptse-Wand.
+  * Physikalisch brechender Orkanwind an Felsgraten und materialspezifische Steigeisen-Akustik (zersplitterndes Blankeis vs. knirschender Firn).
+
+
 
 
 
