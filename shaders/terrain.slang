@@ -276,6 +276,30 @@ float sampleTriplanarRoughMulti(Sampler2D tex, float2 planeUV, float distToCam) 
     return lerp(rCloseMid, rFar, farBlend);
 }
 
+// Step 13 (1:1 Part XI): Multi-Scale Domain-Warped Displacement Sampling
+// Beseitigt hochfrequente Wiederholungs-Muster (Pünktchen / Kachelung) im Displacement vollständig!
+float sampleTriplanarDispMulti(Sampler2D tex, float2 planeUV, float distToCam) {
+    float2 warp = float2(
+        sin(planeUV.y * 0.015 + cos(planeUV.x * 0.009) * 1.7),
+        cos(planeUV.x * 0.014 + sin(planeUV.y * 0.008) * 1.9)
+    ) * 12.0;
+    float2 warpedUV = planeUV + warp;
+
+    float farBlend = smoothstep(120.0, 600.0, distToCam);
+    float midBlend = smoothstep(30.0, 160.0, distToCam);
+
+    float2 uvDetail = warpedUV * (1.0 / 24.0);
+    float2 uvMid = rotateUV(warpedUV * (1.0 / 110.0), 0.59) + float2(0.41, 0.77);
+    float2 uvFar = rotateUV(warpedUV * (1.0 / 420.0), 1.18) + float2(0.83, 0.29);
+
+    float dDetail = tex.Sample(uvDetail).r;
+    float dMid = tex.Sample(uvMid).r;
+    float dFar = tex.Sample(uvFar).r;
+
+    float dCloseMid = lerp(dDetail, dMid, midBlend);
+    return lerp(dCloseMid, dFar, farBlend);
+}
+
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
@@ -335,8 +359,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float glacierElev = smoothstep(4650.0, 4950.0, elev) * (1.0 - smoothstep(5350.0, 5500.0, elev));
     float glacierWeight = glacierElev * (1.0 - smoothstep(12.0, 22.0, slopeDeg)) * 0.85;
 
-    // Schuttmoränen / Schotterkegel unterhalb der Schneegrenze (z.B. Ama Dablam Talsohle)
-    float screeFooting = geomMorph.g * smoothstep(38.0, 20.0, slopeDeg) * (1.0 - aboveSnowline * 0.85);
+    // Step 13 (1:1 Part XI): Talus / Schuttkegel am Wandfuß (30°–40°)
+    // Unterhalb von Steilwänden bildet abbrechendes Gestein feines Geröll
+    float talusSlopeWindow = smoothstep(26.0, 32.0, slopeDeg) * (1.0 - smoothstep(38.0, 44.0, slopeDeg));
+    float talusConeWeight = geomMorph.g * talusSlopeWindow;
+    float screeFooting = clamp(talusConeWeight * 1.4 + geomMorph.g * smoothstep(35.0, 20.0, slopeDeg) * 0.6, 0.0, 1.0) * (1.0 - aboveSnowline * 0.50);
     float screeWeight = screeFooting * (1.0 - glacierWeight);
 
     // Schnee bedeckt Hänge & Hochebenen oberhalb der Schneegrenze (z.B. Basecamp 5.300m zu 100% Schnee!)
@@ -354,10 +381,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         glacierWeight = 0.0;
     }
 
-    // Step 10: Triplanar-Projektion auf allen Achsen homogenisieren
-    // Blend-Exponent w = pow(|N|, 6.0) verhindert vertikales Abschmieren an Steilflanken
-    float3 blendWeights = pow(abs(N), float3(6.0, 6.0, 6.0));
-    blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z + 0.00001);
+    // Step 13 (1:1 Part XI): Exponentiell geschärfte Blend-Gewichte pow(|N|, 8.0)
+    // Verhindert vertikales Triplanar-Stretching an Steilflanken vollständig
+    float3 blendWeights = pow(abs(N), float3(8.0, 8.0, 8.0));
+    blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z + 0.000001);
 
     // Sample Triplanar Rock Albedo with Multi-Scale Distance-Tiled Anti-Tiling (eliminates waffle/honeycomb tiling!)
     float3 rockAlbedoX = sampleTriplanarAlbedoMulti(texRockAlbedo, input.worldPos.zy, distToCam);
@@ -370,20 +397,19 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 rockNormY = sampleTriplanarNormMulti(texRockNormal, input.worldPos.xz, distToCam);
     float3 rockNormZ = sampleTriplanarNormMulti(texRockNormal, input.worldPos.xy, distToCam);
 
-    // Step 10: Homogenisierte Orthonormale Tangentenraum-Transformation für X, Y und Z
-    // Behebt Invertierungen und "flache Schalen" in Mulden und Gegenhängen vollständig!
+    // Step 13 (1:1 Part XI): Exakte Tangentenraum-Transformation für X, Y und Z
+    // Beseitigt invertierte Normalen und wachsartige glatte Schalen
     float signX = (N.x >= 0.0) ? 1.0 : -1.0;
     float signY = (N.y >= 0.0) ? 1.0 : -1.0;
     float signZ = (N.z >= 0.0) ? 1.0 : -1.0;
 
-    // X-Projektion: U = worldPos.z, V = worldPos.y, Normal = X
-    float3 wNormX = float3(rockNormX.z * signX, rockNormX.y, rockNormX.x * signX);
+    // X-Projektion: U = worldPos.z, V = worldPos.y -> Tangent = (0,0,-signX), Bitangent = (0,1,0), Normal = (signX,0,0)
+    float3 wNormX = float3(rockNormX.z * signX, rockNormX.y, -rockNormX.x * signX);
 
-    // Y-Projektion: U = worldPos.x, V = worldPos.z, Normal = Y
-    float3 wNormY = float3(rockNormY.x, rockNormY.z * signY, rockNormY.y * signY);
+    // Y-Projektion: U = worldPos.x, V = worldPos.z -> Tangent = (1,0,0), Bitangent = (0,0,-signY), Normal = (0,signY,0)
+    float3 wNormY = float3(rockNormY.x, rockNormY.z * signY, -rockNormY.y * signY);
 
-    // Z-Projektion: U = worldPos.x, V = worldPos.y, Normal = Z
-    // Tangente und Normale müssen beide mit signZ transformiert werden!
+    // Z-Projektion: U = worldPos.x, V = worldPos.y -> Tangent = (signZ,0,0), Bitangent = (0,1,0), Normal = (0,0,signZ)
     float3 wNormZ = float3(rockNormZ.x * signZ, rockNormZ.y, rockNormZ.z * signZ);
 
     float3 triplanarRockNormal = normalize(wNormX * blendWeights.x + wNormY * blendWeights.y + wNormZ * blendWeights.z);
@@ -394,10 +420,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float rockRoughZ = sampleTriplanarRoughMulti(texRockRoughness, input.worldPos.xy, distToCam);
     float triplanarRockRoughness = rockRoughX * blendWeights.x + rockRoughY * blendWeights.y + rockRoughZ * blendWeights.z;
 
-    // Step 9.2: Triplanar Rock Displacement/Height for Height-Blending
-    float rockDispH_X = texRockDisp.Sample(input.worldPos.zy * (1.0 / 24.0)).r;
-    float rockDispH_Y = texRockDisp.Sample(input.worldPos.xz * (1.0 / 24.0)).r;
-    float rockDispH_Z = texRockDisp.Sample(input.worldPos.xy * (1.0 / 24.0)).r;
+    // Step 13 (1:1 Part XI): Multi-Scale Anti-Tiled Triplanar Rock Displacement
+    float rockDispH_X = sampleTriplanarDispMulti(texRockDisp, input.worldPos.zy, distToCam);
+    float rockDispH_Y = sampleTriplanarDispMulti(texRockDisp, input.worldPos.xz, distToCam);
+    float rockDispH_Z = sampleTriplanarDispMulti(texRockDisp, input.worldPos.xy, distToCam);
     float rockHeight = rockDispH_X * blendWeights.x + rockDispH_Y * blendWeights.y + rockDispH_Z * blendWeights.z;
 
     // Step 12: 4. Knochentrockener dunkler Granit & harter Albedo-Kontrast
@@ -406,21 +432,22 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // Neutralize warm earthy brown into authentic cold Himalayan metamorphic slate/gneiss
     float3 coldRockBase = lerp(triplanarRockAlbedo, float3(rockLuma * 0.90, rockLuma * 0.93, rockLuma * 1.00), 0.78);
 
-    // Authentische Geologie des Mount Everest / Khumbu-Himalaya:
-    // 1. Sockel bis 8.200m: Tibetischer Gneis & Migmatit/Granit (anthrazit / kaltgrau, Albedo ~0.16-0.20)
-    // 2. 8.200m - 8.600m: Das Gelbe Band (Dolomitischer Marmor, ocker/gelblich, Albedo ~0.26-0.32)
-    // 3. > 8.600m: Qomolangma-Formation (dunkelgrauer/schwarzer mikritischer Kalkstein, Albedo ~0.11-0.14)
-    float yellowBandWeight = smoothstep(8180.0, 8240.0, strataH) * (1.0 - smoothstep(8560.0, 8620.0, strataH));
-    float summitQomolangmaWeight = smoothstep(8580.0, 8640.0, strataH);
+    // Step 13 (1:1 Part XI): Geologische Schichtung über Weltkoordinate Y
+    // > 8.600m: Fast schwarzer, schroffer Kalkstein (Qomolangma-Formation, jetstream-abgeweht)
+    // 8.200m - 8.600m: Markantes, hellgelbliches Yellow Band (Dolomit-Marmor)
+    // < 8.200m: Dunkelgrauer Gneis und Granit
+    float elevY = input.worldPos.y;
+    float yellowBandWeight = smoothstep(8180.0, 8260.0, elevY) * (1.0 - smoothstep(8560.0, 8640.0, elevY));
+    float summitQomolangmaWeight = smoothstep(8580.0, 8660.0, elevY);
 
-    float3 baseGneiss = float3(0.44, 0.46, 0.50);
-    float3 yellowBand = float3(0.74, 0.64, 0.42);
-    float3 summitLimestone = float3(0.26, 0.27, 0.30);
+    float3 baseGraniteGneiss = float3(0.38, 0.40, 0.44); // Dunkelgrauer Gneis/Granit
+    float3 yellowBandDolomite = float3(0.85, 0.74, 0.48); // Hellgelblicher Dolomit-Marmor
+    float3 summitLimestone   = float3(0.18, 0.19, 0.22); // Fast schwarzer Qomolangma-Kalkstein
 
-    float3 strataTint = lerp(baseGneiss, yellowBand, yellowBandWeight);
-    strataTint = lerp(strataTint, summitLimestone, summitQomolangmaWeight);
+    float3 strataColor = lerp(baseGraniteGneiss, yellowBandDolomite, yellowBandWeight);
+    strataColor = lerp(strataColor, summitLimestone, summitQomolangmaWeight);
 
-    triplanarRockAlbedo = clamp(coldRockBase * strataTint * 1.10, 0.0, 1.0);
+    triplanarRockAlbedo = clamp(coldRockBase * strataColor * 1.15, 0.0, 1.0);
 
     // 5. Anti-Tiling Planar & POM Detail Sampling for Snow, Scree & Glacier (World Metric Space)
     // Decoupled completely from mesh vertex resolution to eliminate grid/waffle aliasing!
@@ -450,13 +477,14 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 snowNormX = sampleTriplanarNormMulti(texSnowNormal, input.worldPos.zy, distToCam);
     float3 snowNormY = texSnowNormal.Sample(snowUV).rgb * 2.0 - 1.0;
     float3 snowNormZ = sampleTriplanarNormMulti(texSnowNormal, input.worldPos.xy, distToCam);
-    float3 wSnowNormX = float3(snowNormX.z * signX, snowNormX.y, snowNormX.x * signX);
-    float3 wSnowNormY = float3(snowNormY.x, snowNormY.z * signY, snowNormY.y * signY);
+    // Step 13 (1:1 Part XI): Exakte Vorzeichen/Parität auch für Schnee
+    float3 wSnowNormX = float3(snowNormX.z * signX, snowNormX.y, -snowNormX.x * signX);
+    float3 wSnowNormY = float3(snowNormY.x, snowNormY.z * signY, -snowNormY.y * signY);
     float3 wSnowNormZ = float3(snowNormZ.x * signZ, snowNormZ.y, snowNormZ.z * signZ);
     float3 triplanarSnowNormal = normalize(wSnowNormX * blendWeights.x + wSnowNormY * blendWeights.y + wSnowNormZ * blendWeights.z);
 
-    // Authentic High-Himalayan Firn Snow: pure crystalline diffuse scatter (0.70 - 0.86 roughness, no plastic sheen!)
-    float snowRough = clamp(texSnowRoughness.Sample(snowUV).r * 0.20 + 0.72, 0.70, 0.88);
+    // Step 13 (1:1 Part XI): Firn & Harsch (Roughness ≈ 0.35 - 0.55 für Glitzern bei flachem Sonnenstand)
+    float snowRough = clamp(texSnowRoughness.Sample(snowUV).r * 0.20 + 0.38, 0.35, 0.55);
 
     // Sample Scree / Moraine: Top-down blended with side projection to prevent stretching on 30° slopes
     float3 screeAlbedoTop = sampleAntiTileMulti(texScreeAlbedo, input.worldPos.xz, distToCam, 14.0);
@@ -480,31 +508,39 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 planarAlbedo = snowAlbedo * snowWeight + screeAlbedo * screeWeight + glacierAlbedo * glacierWeight;
     float planarRough = snowRough * snowWeight + screeRough * screeWeight + glacierRough * glacierWeight;
 
-    // Step 12: 3. Schneemasken-Schärfe & Geologische Kopplung (Weg von 33.8m-Polygon-Blobs / Kuhflecken)
-    // Master Cliff Rock Determination:
-    // Flacher Boden (< 26°) hat 0.0 Wandfels (100% planarer Schnee/Gletscher).
-    // Steilwände (> 44°) sind Fels, außer in tiefen Couloir-Rinnen!
-    float cliffFactor = smoothstep(26.0, 44.0, slopeDeg);
+    // Step 13 (1:1 Part XI): Leopardenmuster & fehlerhaftes Noise-Clipping vollständig eliminieren
+    // 1. Slope als Primärfilter: An Steilwänden über 45° darf kein Schnee haften!
+    //    Couloirs (Lawinenrinnen) behalten ihre tiefen Schneebänder
     float couloirSnowChute = smoothstep(0.24, 0.54, geomMorph.r) * smoothstep(12.0, 78.0, slopeDeg);
-    float windScourFactor = clamp(windAlignment * 0.35, -0.25, 0.35);
+    float slopeSnowEligibility = 1.0 - smoothstep(28.0, 45.0, slopeDeg);
 
-    // Freiliegender Steilwand-Fels:
-    float rockTendency = cliffFactor * (1.0 - couloirSnowChute * 0.90) + windScourFactor * cliffFactor + summitWindScour * 0.85;
-    rockTendency = clamp(rockTendency, 0.0, 1.0);
+    // Schneeablagerungspotenzial:
+    // Hochebenen & flache Hänge über 5.050m erhalten vollen Schnee,
+    // Steilwände werfen Schnee ab, Couloirs fangen Schnee auf
+    float snowAmount = (slopeSnowEligibility + couloirSnowChute * 0.85) * aboveSnowline * (1.0 - summitWindScour * 0.95);
+    if (slopeDeg > 45.0 && couloirSnowChute < 0.15) {
+        snowAmount = 0.0;
+    }
 
-    // Multi-Scale Triplanar-Felsrelief (Fraktale Felskanten an der Grenze zu Schnee):
-    // Kombiniert 24m makro-tektonische Rillen mit 5.5m feinen Granit-Bruchkanten
-    float rockDispH_Micro = texRockDisp.Sample(input.worldPos.xz * (1.0 / 5.5)).r;
-    float combinedRockHeight = rockHeight * 0.65 + rockDispH_Micro * 0.35;
-    float rockRelief = (combinedRockHeight - 0.5) * 0.44;
-    float couloirCarve = couloirSnowChute * 0.35;
-    float structuralRock = rockTendency + rockRelief - couloirCarve;
+    // 2. Physical Height-Blend statt Noise-Cutout:
+    //    Schnee sammelt sich physikalisch immer zuerst in den Tälern und Rillen der Gesteinsstruktur:
+    //    rockHeight aus triplanarer Displacement-Map (0 = Spaltentiefe, 1 = Felsspitze)
+    //    rockCreviceDepth = 1.0 - rockHeight kehrt die Höhe um (1.0 = tiefste Felsspalte)
+    float rockCreviceDepth = 1.0 - rockHeight;
+    float blendSharpness = 6.0;
+    float heightDifference = (rockCreviceDepth + snowAmount) - 1.0;
+    float snowMask = saturate(heightDifference * blendSharpness);
 
-    // Messerscharfe Kanten (0.45 - 0.55):
-    float rockBlendFactor = smoothstep(0.45, 0.55, structuralRock);
+    // Primärfilter-Absicherung: Reiner Fels an Steilwänden über 45°
+    if (slopeDeg > 45.0 && couloirSnowChute < 0.15) {
+        snowMask = 0.0;
+    }
 
-    // Step 12: 2. Fels-Roughness strikt 0.88 - 0.98 (knochentrockener, rauer Stein, absolut null Glanz)
-    float rockRoughPBR = clamp(triplanarRockRoughness * 0.15 + 0.88, 0.88, 0.98);
+    // rockBlendFactor: 1.0 = nackter Fels, 0.0 = geschlossene Schneedecke
+    float rockBlendFactor = 1.0 - snowMask;
+
+    // Step 13 (1:1 Part XI): Granit/Kalkstein extrem rau (0.88 - 0.96, rein diffus, absolut null Glanz)
+    float rockRoughPBR = clamp(triplanarRockRoughness * 0.08 + 0.90, 0.88, 0.96);
 
     // Composite Triplanar Rock with Planar Ground using Height-Blend factor
     float3 detailAlbedo = triplanarRockAlbedo * rockBlendFactor + planarAlbedo * (1.0 - rockBlendFactor);
@@ -589,32 +625,36 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 totalAmbient = (skyLight + snowGroundBounce + crossPeakBounce);
     totalAmbient = max(totalAmbient, float3(0.008, 0.010, 0.015) * contactAO);
 
-    // 9. Step 12: PBR Specular & Directed Sun Reflection
-    // Fels hat absolut KEINEN Glanz (specIntensity = 0 für Fels, kein Wachs/Plastik!)
+    // Step 13 (1:1 Part XI): PBR Specular & Subsurface Scattering (Translucency)
+    // Fels: strikt Specular = 0.0, Fresnel = 0.0 (kein Plastik-/Wachsglanz)
+    // Firn/Harsch: leicht diffus spiegelnd bei flachem Sonnenstand
     float3 H = normalize(L + V);
     float NdotH = clamp(dot(finalNormal, H), 0.0, 1.0);
-    float specPower = lerp(16.0, 220.0, pow(1.0 - roughness, 2.0));
-    // Fels komplett von Glanz & Reflexion befreit:
-    // Specular intensity: zero on rock, subtle on snow, strong only on blue glacier ice
-    float specIntensity = (snowWeight * 0.05 + glacierWeight * 0.75) * (1.0 - rockBlendFactor);
+    float specPower = lerp(16.0, 180.0, pow(1.0 - roughness, 2.0));
+
+    // Glitzern bei flachem Sonnenstand (Low Sun Glint)
+    float lowSunGlint = 1.0 - smoothstep(0.12, 0.75, L.y);
+    float snowSpecCoeff = 0.08 + 0.16 * lowSunGlint;
+    float specIntensity = (snowWeight * snowSpecCoeff + glacierWeight * 0.75) * (1.0 - rockBlendFactor);
 
     // Diamond dust sparkle: microscopic ice crystal facets shimmering in direct sunlight
     float RdotV = clamp(dot(reflect(-L, finalNormal), V), 0.0, 1.0);
-    float sparkle = pow(RdotV, 128.0) * snowWeight * 0.35 * NdotL * earthShadow * (1.0 - rockBlendFactor);
+    float sparkle = pow(RdotV, 128.0) * snowWeight * 0.40 * NdotL * earthShadow * (1.0 - rockBlendFactor);
     float specular = pow(NdotH, specPower) * specIntensity * NdotL * earthShadow + sparkle;
 
     // Fresnel sheen: subtle glancing rim on ice, essentially zero on snow, strictly zero on rock
     float VdotN = clamp(dot(V, finalNormal), 0.0, 1.0);
-    float fresnel = pow(1.0 - VdotN, 5.0) * (snowWeight * 0.03 + glacierWeight * 0.50) * (1.0 - rockBlendFactor);
+    float fresnel = pow(1.0 - VdotN, 5.0) * (snowWeight * 0.04 + glacierWeight * 0.50) * (1.0 - rockBlendFactor);
 
-    // Subsurface Scattering rein auf Schnee/Firn (Fels hat absolut null SSS)
-    float sssSnowWeight = snowWeight * pow(1.0 - rockBlendFactor, 2.0);
-    float3 sssLightDir = normalize(L + finalNormal * 0.40);
-    float sssBackDot = clamp(dot(V, -sssLightDir), 0.0, 1.0);
-    float3 sssForwardGlow = pow(sssBackDot, 4.0) * float3(0.78, 0.88, 1.05) * pc.sunColor.rgb * 0.20 * earthShadow;
-    float sssWrapTerm = smoothstep(-0.25, 0.75, rawNdotL);
-    float3 sssVolumetricTint = float3(0.72, 0.86, 1.0) * pc.sunColor.rgb * sssWrapTerm * 0.12 * earthShadow;
-    float3 snowSSS = (sssForwardGlow + sssVolumetricTint) * sssSnowWeight * (ao * 0.70 + 0.30);
+    // Subsurface Scattering (Translucency) für Schnee an Bergkämmen (kein kreidiger Gips-Look)
+    float sssSnowWeight = snowWeight * pow(1.0 - rockBlendFactor, 1.8);
+    float3 sssLightDir = normalize(L + finalNormal * 0.35);
+    float sssForwardDot = clamp(dot(V, -sssLightDir), 0.0, 1.0);
+    float ridgeTranslucency = geomMorph.b * 0.6 + 0.4;
+    float3 sssForwardGlow = pow(sssForwardDot, 3.5) * float3(0.82, 0.90, 1.05) * pc.sunColor.rgb * 0.30 * earthShadow * ridgeTranslucency;
+    float sssWrapTerm = smoothstep(-0.20, 0.80, rawNdotL);
+    float3 sssVolumetricTint = float3(0.74, 0.88, 1.02) * pc.sunColor.rgb * sssWrapTerm * 0.14 * earthShadow;
+    float3 snowSSS = (sssForwardGlow + sssVolumetricTint) * sssSnowWeight * (ao * 0.65 + 0.35);
 
     float3 litColor = compositeAlbedo * (directLight + totalAmbient) + 
                       float3(specular + fresnel, specular + fresnel, specular + fresnel) + 
@@ -697,10 +737,18 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     float3 atmosphericInscatter = rayleighInscatter + mieInscatter + ambientHaze;
     float3 terrainColor = litColor * totalTransmittance + atmosphericInscatter;
-    float3 finalColor = lerp(terrainColor, distantHazeColor, expFogFactor * 0.75);
 
     // 12. Blizzard, Spindrift & Whiteout Storm Simulation
     float blizzard = pc.sunColor.w;
+
+    // Step 13 (1:1 Part XI): Distanzabhängiger Rayleigh-Dunst & Kontrastverlust über 30+ km
+    // Bringt das Auge dazu, die gigantische Weite von 30-35 km Weitblick sofort plastisch wahrzunehmen
+    float distAerialScale = 1.0 - exp(-distToCam * 0.000042);
+    float3 distantMassifBlue = lerp(float3(0.32, 0.48, 0.82), float3(0.12, 0.18, 0.40), altRatio);
+    terrainColor = lerp(terrainColor, distantMassifBlue * pc.sunColor.rgb, distAerialScale * 0.38 * (1.0 - blizzard));
+
+    float3 finalColor = lerp(terrainColor, distantHazeColor, expFogFactor * 0.75);
+
     if (blizzard > 0.01) {
         float2 stormCoord = input.worldPos.xz * 0.08 + float2(pc.time * 55.0, pc.time * 25.0);
         float spindriftNoise = sin(stormCoord.x) * cos(stormCoord.y) * 0.5 + 0.5;

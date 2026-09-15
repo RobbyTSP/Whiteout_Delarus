@@ -545,6 +545,67 @@ Korrektur der fotorealistischen Kernbereiche: Wiederherstellung des echten Hochg
   * `contactAO` schirmt Himmelslicht und Schneeboden-Reflektionen in engen Felskerben und Wandfüßen bis auf ein tiefes Restminimum von $0,008$ ab.
   * Schlagschatten und dunkle Schluchten erhalten monumentale geologische Schwärze und plastische Tiefenwirkung zurück.
 
+
+---
+
+## 🏔️ Schritt 13: Leopardenmuster-Eliminierung via Physical Height-Blend, Exponentielle Triplanar-Schärfung pow(|N|, 8.0), PBR-Roughness-Trennung & Weltkoordinaten-Geologie (1:1 Part XI - Abgeschlossen)
+
+Fundamentale Beseitigung aller Artefakte aus Schwellenwert-Clipping und ungeschärften Triplanar-Projektionen sowie physikalische Vollendung des Himalaya-Renderings ([`shaders/terrain.slang`](shaders/terrain.slang)):
+
+### 1. Leopardenmuster & fehlerhaftes Noise-Clipping vollständig eliminiert
+* **Löschung isolierter Noise-Cutouts:**
+  * Frühere kreisrunde Ringe, schwarze Kringel und isolierte Flecken auf Bergflanken stammten aus hochfrequenten Rauschwerten mit zu engen Schwellenwertfenstern (`smoothstep(0.45, 0.55)`). In der Natur existieren keine isolierten runden Flecken auf Felsgraten.
+  * Vollständige Entfernung des isolierten Rauschens zugunsten physikalischer Materialablagerung.
+* **Physical Height-Blend:**
+  * Schnee lagert sich physikalisch immer zuerst in den Tälern, Furchen und Rillen der Gesteinsstruktur ab:
+    ```hlsl
+    float rockCreviceDepth = 1.0 - rockHeight;
+    float blendSharpness = 6.0;
+    float heightDifference = (rockCreviceDepth + snowAmount) - 1.0;
+    float snowMask = saturate(heightDifference * blendSharpness);
+    ```
+  * Multi-Scale Domain-Warped Displacement (`sampleTriplanarDispMulti`): Beseitigt das hochfrequente Wiederholungs- und Kachelmuster im Displacement und verbindet $24\text{ m}$ Felsspalten mit $110\text{ m}$ und $420\text{ m}$ geologischer Großformation.
+* **Slope als Primärfilter:**
+  * Steilwände über $45^\circ$ werfen Schnee gravitativ ab: Auf Felswänden $>45^\circ$ gilt strikt $\text{snowAmount} = 0,0$ und $\text{snowMask} = 0,0$, außer in tief eingekerbten Lawinen- und Erosionsrinnen (Couloirs).
+
+### 2. Triplanar-Stretching (Wachseffekt) an Steilwänden beseitigt
+* **Blend-Gewichte exponentiell geschärft:**
+  * Anhebung der Triplanar-Normalengewichte auf die 8. Potenz:
+    ```hlsl
+    float3 blend = pow(abs(worldNormal), float3(8.0));
+    blend /= (blend.x + blend.y + blend.z);
+    ```
+  * Verhindert das vertikale Herabfließen und Schmieren von Texturen an Steilflanken (z. B. Lhotse-Wand und Nuptse-Kante) vollständig.
+* **Orthonormale Tangentenraum-Transformation korrigiert:**
+  * Mathematisch exakte Vorzeichen- und Achsentransformation für $X$-, $Y$- und $Z$-Projektionen (unter Wahrung der Rechtshändigkeit $\mathbf{T} \times \mathbf{B} = \mathbf{N}$):
+    * **X-Achse:** $\mathbf{wNormX} = (n_z \cdot \text{signX}, n_y, -n_x \cdot \text{signX})$
+    * **Y-Achse:** $\mathbf{wNormY} = (n_x, n_z \cdot \text{signY}, -n_y \cdot \text{signY})$
+    * **Z-Achse:** $\mathbf{wNormZ} = (n_x \cdot \text{signZ}, n_y, n_z \cdot \text{signZ})$
+  * Beseitigt invertierte Schattierungen und wachsartige „flache Schalen“ auf Nord- und Gegenhängen vollständig.
+
+### 3. PBR-Materialwerte & Lichtphysik korrigiert
+* **Roughness-Werte physikalisch getrennt:**
+  * **Granit & Kalkstein:** Strikt rau ($\text{Roughness} \approx 0,88$–$0,96$) ohne jeglichen Plastik- oder Speckglanz ($\text{Specular} = 0,0$, $\text{Fresnel} = 0,0$).
+  * **Firn & Harsch:** Leicht diffus spiegelnd ($\text{Roughness} \approx 0,35$–$0,55$), um das charakteristische Glitzern bei flachem Sonnenstand einzufangen (`lowSunGlint = 1.0 - smoothstep(0.12, 0.75, L.y)`).
+* **Multi-Scale HBAO (Tiefe in Spalten):**
+  * Tiefe Kontaktschatten in Furchen, Couloirs und Wandfüßen schirmen Umgebungs- und Streulicht bis auf ein Minimum von $0,008$ ab und verleihen dem Gebirge monumentale Masse.
+* **Subsurface Scattering (Translucency) für Schnee:**
+  * Schnee absorbiert Sonnenlicht und streut es vorwärts durch scharfe Kämme (`geomMorph.b`). Ein Vorwärtsterm ($\text{pow}(\mathbf{V} \cdot -\mathbf{L}_{\text{sss}}, 3.5)$) eliminiert den kreidigen Gips-Look und lässt Schneegrate leuchtend und transluzent wirken.
+
+### 4. Höhen- und Geologie-Banding (Himalaya-Signatur)
+* **Geologische Schichtung über Weltkoordinate Y:**
+  * **$> 8.600\text{ m}$:** Pechschwarzer bis dunkelgrauer, extrem schroffer Kalkstein der Qomolangma-Formation ($RGB \approx 0,18, 0,19, 0,22$). Durch orkanartige Jetstream-Winde nahezu vollständig schneefrei abgeweht.
+  * **$8.200\text{ m}$ – $8.600\text{ m}$:** Das markante, hellgelbliche **Yellow Band** (rekristallisierter Dolomit-Marmor, $RGB \approx 0,85, 0,74, 0,48$).
+  * **$< 8.200\text{ m}$:** Dunkelgrauer Gneis und Granit der tibetischen Sockelzone ($RGB \approx 0,38, 0,40, 0,44$).
+* **Talus / Schuttkegel am Wandfuß ($30^\circ$–$40^\circ$):**
+  * Unterhalb steiler Felswände in der Neigungszone von $30^\circ$ bis $40^\circ$ wird feines Schuttgeröll (`screeFooting`) eingeblendet.
+
+### 5. Rayleigh-Streuung & Weitwinkel-Himmel
+* **Dynamische Skybox mit echter Sonnenposition:**
+  * Hochdynamisches Himmelsmodell ([`shaders/sky.slang`](shaders/sky.slang)) mit tiefer Sonnenstellung, Sonnenkorona, Belt of Venus und spektraler Dämmerungs-Extinktion.
+* **Entfernungsabhängiger Rayleigh-Dunst & Kontrastverlust über 30+ km:**
+  * Physikalische Dämpfung und Bläuung über $30\text{ km}$ Distanz ($\text{distAerialScale} = 1 - \exp(-\text{dist} \cdot 0,000042)$), wodurch das menschliche Auge die gigantische Tiefe und Dimension des Himalayas unmittelbar greifen kann.
+
 ---
 
 ## 🔭 Nächste Schritte (Roadmap)
@@ -563,6 +624,7 @@ Korrektur der fotorealistischen Kernbereiche: Wiederherstellung des echten Hochg
 * [x] **Schritt 10 (1:1 Part VIII):** Physikalische Schnee-Kopplung (Height-Blending & Flow gegen Flecken-Optik, Fallrichtung $+Y$ & Winddrift) & Triplanar-Homogenisierung (Normal-Transformation der $X/Z$-Achsen, Exponent $w = |\mathbf{N}|^{6.0}$).
 * [x] **Schritt 11 (1:1 Part IX):** PBR-Tiefenplastizität (HBAO/Kontaktschatten in Furchen, Roughness-Splitting Fels $0,85$–$0,95$ vs. Eis $0,3$–$0,5$) & Dynamic Sky / Skybox mit weitem Rayleigh-Distanzdunst.
 * [x] **Schritt 12 (1:1 Part X):** Brutaler Felskontrast (Knochentrockener Granit Albedo ~0.16 vs. Schnee ~0.90), Fels-Roughness strikt diffus (0.88–0.98, Null Specular/Fresnel), Messerscharfe Schneegullies & Couloir-Flow (Beseitigung aller 33,8m-Kuhflecken durch Multi-Scale Displacement), Triplanar-Schnee gegen Wandstreckung & Tiefes Schluchten-HBAO.
+* [x] **Schritt 13 (1:1 Part XI):** Leopardenmuster-Eliminierung via Physical Height-Blend (`snowMask = saturate(((1.0 - rockHeight) + snowAmount - 1.0) * blendSharpness)`), Slope-Primärfilter ($>45^\circ$ reiner Fels außer Couloirs), Multi-Scale Domain-Warped Displacement, Exponentielle Triplanar-Schärfung `pow(|N|, 8.0)`, Tangentenraum-Paritätskorrektur ($X, Y, Z$), PBR-Roughness-Trennung (Fels $0,88$–$0,96$ diffus vs. Firn $0,35$–$0,55$ spiegelnd), Schnee-Translucency (SSS), Weltkoordinaten-$Y$ Geologie (Qomolangma-Kalkstein, Yellow Band, Basiskristallin) & 30+ km Rayleigh-Distanzdunst.
 
 
 
