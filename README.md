@@ -641,6 +641,53 @@ Reale physikalische Gebirgsschatten über das gesamte $35\text{ km} \times 35\te
 
 ---
 
+## 🏔️ Schritt 15: Khumbu-Gletscher & Eisfall-Dynamik (1:1 Part XIII - Abgeschlossen)
+
+Physikalisch fundierte Eisfall-Strukturierung, spektrale Lichtabsorption und supraglaziale Schmelzwassertümpel ([`shaders/terrain.slang`](shaders/terrain.slang), [`src/game/Player.cpp`](src/game/Player.cpp), [`src/game/TerrainCollider.cpp`](src/game/TerrainCollider.cpp), [`src/core/Window.cpp`](src/core/Window.cpp), [`src/main.cpp`](src/main.cpp)):
+
+### 1. Prozedurales Fließspannungs-Gitter (Strain-Tensor Crevasses & Séracs)
+* **Khumbu-Korridor-Geometrie & Geländestufen:**
+  * Berechnung der Khumbu-Hauptfließachse von Basislager (5.300 m) über den steilen Eisfallbruch bis ins Western Cwm (6.400 m).
+  * Begrenzung auf das reale Gletschertal mittels orthogonalem Distanzfilter (`khumbuCorridor`), wodurch benachbarte Granitwände (Nuptse, Westgrat) unberührt bleiben.
+* **Fließspannungs-Bruchmuster:**
+  * Projektion auf das Fließkoordinatensystem: $s_{\text{flow}} = \mathbf{P}_{xz} \cdot \hat{\mathbf{v}}_{\text{flow}}$ und $s_{\text{cross}} = \mathbf{P}_{xz} \cdot \hat{\mathbf{v}}_{\text{cross}}$.
+  * Domänenverzerrte Zugspannungsrisse erzeugen quer zur Fließrichtung bis zu 25 Meter tiefe Gletscherspalten (`crevasseFactor`) und aufragende, instabile Sérac-Eisnadeln (`seracFactor`).
+* **Vertex-Displacement auf Makroebene:**
+  * Im Höhenband des Eisfalls ($5.480\text{ m}$ bis $6.180\text{ m}$) bei Hängen von $14^\circ$ bis $44^\circ$ verformen Sérac-Rücken ($+5,5\text{ m}$) und Spaltentröge ($-4,5\text{ m}$) das 3D-Polygonnetz.
+* **100% Eis-Freilegung in Spalten:**
+  * An Bruchwänden und in Spaltentiefen bricht die lockere Schneedecke physikalisch ab (`crevasseIceExpose`), sodass reines, massives Gletschereis sichtbar wird.
+  * An den steilen Eisabstürzen des Khumbu-Eisfalls ($14^\circ$–$38^\circ$) wird der nackte Felsmaskierungsfilter unterdrückt, da es sich um stürzendes Gletschereis und nicht um Felsabbrüche handelt.
+
+### 2. Spektrale Lichtabsorption im Gletschereis (Beer-Lambert-Gesetz)
+* **Wellenlängenabhängige Extinktion:**
+  * Echtes Gletschereis absorbiert rotes Licht $\approx 70\times$ bis $100\times$ stärker als blaues Licht.
+  * Absorptionskoeffizient: $\mathbf{\mu}_a = [0,35,\, 0,038,\, 0,005]\text{ m}^{-1}$ für [Rot, Grün, Blau].
+  * Spektrale Transmission nach Eindringtiefe $d$: $\mathbf{T}(d) = \exp(-\mathbf{\mu}_a \cdot d)$.
+  * In $12\text{ m}$ Spaltentiefe werden $98,5\%$ des roten Lichts absorbiert, während $94\%$ des blauen Lichts überleben.
+* **Spektrales Spalten-Leuchten (Internal Azure/Cobalt Glow):**
+  * Diffuses inneres Streulicht (`crevasseInternalGlow`) leuchtet aus tiefen Spaltenwänden in magischem Kobalt- und Azurblau hervor.
+  * Neigung der Spaltenwandnormalen zur Rissmitte hin (`crevasseNormalPerturb`).
+
+### 3. Supraglaziale Schmelzwassertümpel (Glacial Meltwater Tarns)
+* **Gletschermoränen-Becken:**
+  * Auf den flachen Becken der unteren Gletscherzunge ($4.700\text{ m}$–$5.400\text{ m}$, Neigung $< 6,5^\circ$) sammeln sich Schmelzwasserseen.
+* **Optik & Schwebstoff-Farbe:**
+  * Charakteristische Türkis- und Smaragdfärbung durch suspendiertes Gesteinsmehl (Rock Flour, Gletschermilch).
+  * Spiegelglatte Wasseroberfläche (Roughness $= 0,02$) mit physikalischer Schlick-Fresnel-Reflexion ($F_0 = 0,02$) und messerscharfem 512-Exponenten-Sonnenglanz.
+  * Zarte, windgetriebene Wasserwellen auf der Oberfläche.
+
+### 4. Beseitigung aller Undefined-Smoothstep-Instabilitäten
+* Strikte Einhaltung der Vulkan/SPIR-V Spezifikation (GLSL.std.450), wonach `smoothstep(edge0, edge1, x)` bei $\text{edge0} \ge \text{edge1}$ undefiniertes Verhalten erzeugt.
+* Alle inversen Fades wurden auf standardkonformes $1,0 - \text{smoothstep}(\text{min}, \text{max}, x)$ mit $\text{min} < \text{max}$ umgestellt, wodurch jegliche Geometrieverzerrungen und Flackern im Nah- und Fernbereich eliminiert wurden.
+
+### 5. Steuerung & Alpine Geologie
+* **Neuer Schnellreise-Preset `5`:** Sofortiger Teleport zum **Khumbu-Eisfall (5.867 m)** (`-13800, -8600`).
+* **Alpine Oberflächenklassifikation:**
+  * Erkennung von `Khumbu Icefall (Active Séracs & 25m Crevasses)` bei $5.350\text{ m}$ bis $6.250\text{ m}$ auf $14^\circ$–$38^\circ$ Hangneigung.
+  * Erkennung von `Glacial Blue Ice (Khumbu Glacier & Moraine)` in flacheren Becken.
+
+---
+
 ## 🏔️ Nächste Schritte (Roadmap)
 
 * [x] **Schritt 1:** Geodaten- & Bild-Download, DEM-Stitching, PBR-Texturen, Wetter-API.
@@ -663,7 +710,7 @@ Reale physikalische Gebirgsschatten über das gesamte $35\text{ km} \times 35\te
   * Hardware-beschleunigtes Raymarching durch das $1024 \times 1024$ Höhengitter direkt auf der GPU.
   * Echter 35-Kilometer-Schattenwurf: Der Mount Everest und die Lhotse-Wand werfen morgens und abends riesige, messerscharfe Pyramidenschatten über das Khumbu-Tal und Tibet mit weicher Halbschatten-Penumbra ($0,53^\circ$ Sonnendurchmesser).
   * Fast-Rejection-Optimierung: Sofortiger Abbruch bei Backfaces, Verlassen der Bounding Box oder Überschreiten der $8.860\text{ m}$ Gipfelhöhe (< 0,2 ms Rechenzeit).
-* [ ] **Schritt 15 (1:1 Part XIII): Khumbu-Gletscher & Eisfall-Dynamik:**
+* [x] **Schritt 15 (1:1 Part XIII): Khumbu-Gletscher & Eisfall-Dynamik:**
   * Prozedurales Fließspannungs-Gitter (Strain-Tensor): An Geländestufen brechen echte 25 Meter tiefe Gletscherspalten (Crevasses) und turmhohe, instabile Serac-Eisnadeln auf.
   * Spektrale Lichtabsorption im Gletschereis: Rotes Licht wird $100\times$ stärker absorbiert als blaues – Spalten leuchten von innen heraus in magischem Kobalt- und Azurblau.
   * Supraglaziale Schmelzwassertümpel auf dem Moränengrund mit physikalischem Brechungsindex.

@@ -44,6 +44,13 @@ void Player::teleportToPreset(int preset) {
             m_pitch = 22.0f;
             m_currentLocationName = "Ama Dablam Valley";
             break;
+        case 5: // Khumbu Icefall Séracs & Crevasses (5,867m)
+            m_position.x = -13800.0f;
+            m_position.z = -8600.0f;
+            m_yaw = -80.0f;
+            m_pitch = -8.0f;
+            m_currentLocationName = "Khumbu Icefall Séracs & Crevasses (5,867m)";
+            break;
         default:
             return;
     }

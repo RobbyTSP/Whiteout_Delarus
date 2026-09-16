@@ -143,12 +143,15 @@ AlpineGeologyInfo TerrainCollider::getGeologyInfo(float worldX, float worldZ) co
             info.surfaceType = AlpineSurfaceType::ExposedRockFace;
             info.surfaceTypeName = "Exposed Rock Face (Granite/Limestone Cliff)";
         }
+    } else if (height >= 5350.0f && height <= 6250.0f && slope >= 14.0f && slope <= 38.0f) {
+        info.surfaceType = AlpineSurfaceType::GlacialBlueIce;
+        info.surfaceTypeName = "Khumbu Icefall (Active Séracs & 25m Crevasses)";
+    } else if (height >= 4750.0f && height <= 6700.0f && slope < 22.0f && (height <= 5450.0f || height >= 5950.0f)) {
+        info.surfaceType = AlpineSurfaceType::GlacialBlueIce;
+        info.surfaceTypeName = "Glacial Blue Ice (Khumbu Glacier & Moraine)";
     } else if (slope >= 24.0f && slope <= 40.0f) {
         info.surfaceType = AlpineSurfaceType::TalusScreeSlope;
         info.surfaceTypeName = "Unstable Talus Scree Fan (Loose Gravel Repose)";
-    } else if (height >= 4800.0f && height <= 5450.0f && slope < 22.0f) {
-        info.surfaceType = AlpineSurfaceType::GlacialBlueIce;
-        info.surfaceTypeName = "Glacial Blue Ice (Khumbu Glacier Icefall)";
     } else {
         info.surfaceType = AlpineSurfaceType::HardFirnSnow;
         info.surfaceTypeName = "Alpine Firn Snowfield";

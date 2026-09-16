@@ -33,6 +33,7 @@ int main(int argc, char* argv[]) {
     std::cout << "   - 2: Fast Travel -> Mount Everest Summit Ridge (8,729m)\n";
     std::cout << "   - 3: Fast Travel -> Lhotse Face / South Col (8,410m)\n";
     std::cout << "   - 4: Fast Travel -> Ama Dablam Valley (4,653m)\n";
+    std::cout << "   - 5: Fast Travel -> Khumbu Icefall Séracs & Crevasses (5,867m)\n";
     std::cout << "   - T: Cycle Time of Day (Dawn Alpenglühen -> Noon -> Sunset -> Night)\n";
     std::cout << "   - B: Toggle Blizzard / Whiteout Mode (30m Visibility & Spindrift)\n";
     std::cout << "   - L: Toggle Live Open-Meteo Weather Synchronization\n";
@@ -102,7 +103,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        if (initialPreset >= 1 && initialPreset <= 4) {
+        if (initialPreset >= 1 && initialPreset <= 5) {
             player.teleportToPreset(initialPreset);
         }
 

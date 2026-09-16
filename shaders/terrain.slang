@@ -83,7 +83,7 @@ VertexOutput vertexMain(VertexInput input) {
     float distToCam = length(pc.cameraPos.xyz - worldPos.xyz);
     // Player clearance: preserve ground collision within 4m of player camera stance, full effect from 9m to 1000m
     float nearClearance = smoothstep(3.5, 9.0, distToCam);
-    float dispFade = smoothstep(1200.0, 80.0, distToCam) * nearClearance;
+    float dispFade = (1.0 - smoothstep(80.0, 1200.0, distToCam)) * nearClearance;
 
     if (dispFade > 0.001) {
         float2 wp = worldPos.xz;
@@ -104,7 +104,43 @@ VertexOutput vertexMain(VertexInput input) {
         float3 horizDisplace = float3(horizNorm.x, 0.0, horizNorm.y) * (fbmNoise * slopeFactor * 2.8);
         float vertDisplace = (fbmNoise * 0.35 + (ridgeCrest * 1.6 - couloirTrough * 1.2)) * slopeFactor;
 
-        float3 dispVector = (horizDisplace + float3(0.0, vertDisplace, 0.0)) * dispFade;
+        // Step 15 (1:1 Part XIII): Khumbu-Eisfall & Gletscher-Dynamik (Strain-Tensor: Spalten & Séracs)
+        // Khumbu-Gletscher Korridor-Achse (von Basislager über Eisfall bis ins Western Cwm)
+        float2 khumbuA = float2(-15645.0, -9751.0);
+        float2 khumbuD = float2(5145.0, 2351.0);
+        float khumbuLenSq = 31998226.0;
+        float khumbuT = clamp(dot(worldPos.xz - khumbuA, khumbuD) / khumbuLenSq, 0.0, 1.0);
+        float distToKhumbu = length(worldPos.xz - (khumbuA + khumbuD * khumbuT));
+        float khumbuCorridor = 1.0 - smoothstep(450.0, 750.0, distToKhumbu);
+
+        // Khumbu-Eisfall Stufe ist strikt zwischen 5.480m und 6.180m
+        float vertSlopeDeg = degrees(acos(clamp(normal.y, -1.0, 1.0)));
+        float icefallBand = smoothstep(5480.0, 5620.0, worldPos.y) * (1.0 - smoothstep(6150.0, 6280.0, worldPos.y));
+        float valleyFloor = 1.0 - smoothstep(0.15, 0.45, ridgeCrest);
+        float icefallGradient = smoothstep(14.0, 22.0, vertSlopeDeg) * (1.0 - smoothstep(34.0, 44.0, vertSlopeDeg));
+        float icefallIntensity = icefallBand * valleyFloor * icefallGradient * khumbuCorridor;
+
+        float3 glacierDisp = float3(0.0);
+        if (icefallIntensity > 0.005) {
+            float2 flowDir = normalize(horizNorm);
+            float2 crossDir = float2(-flowDir.y, flowDir.x);
+            float sFlow = dot(wp, flowDir);
+            float sCross = dot(wp, crossDir);
+
+            // Domain-warped fracture grid (Zugspannungs-Rissnetzwerk)
+            float fractureWarp = sin(sCross * 0.12 + cos(sFlow * 0.09) * 2.2) * 2.8;
+            float crevasseWave = sin((sFlow + fractureWarp) * 0.22);
+            float seracCrossWave = cos(sCross * 0.18 + sin(sFlow * 0.11) * 1.9);
+
+            // Sanfte, hochalpine Wellen & Sérac-Rücken (+5.5m / -4.5m)
+            float crevasseTrench = (1.0 - smoothstep(-0.85, -0.25, crevasseWave)) * -4.5;
+            float seracTower = smoothstep(0.35, 0.90, crevasseWave * 0.65 + seracCrossWave * 0.45) * 5.5;
+            float glacierDisplaceY = (crevasseTrench + seracTower) * icefallIntensity;
+
+            glacierDisp = float3(0.0, glacierDisplaceY, 0.0);
+        }
+
+        float3 dispVector = (horizDisplace + float3(0.0, vertDisplace, 0.0) + glacierDisp) * dispFade;
         worldPos.xyz += dispVector;
     }
 
@@ -429,15 +465,36 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float strataH = elev - 0.22 * input.worldPos.z;
 
     // 6. Planare Bodenablagerung (Gletscher, Schuttmoräne, Altschnee/Firn)
-    // Glacier Ice: Khumbu-Gletscherzunge (4.650m - 5.400m in flachen Talsohlen)
-    float glacierElev = smoothstep(4650.0, 4950.0, elev) * (1.0 - smoothstep(5350.0, 5500.0, elev));
-    float glacierWeight = glacierElev * (1.0 - smoothstep(12.0, 22.0, slopeDeg)) * 0.85;
+    // Step 15 (1:1 Part XIII): Khumbu-Gletscher, Eisfall & Glaziale Becken
+    // Khumbu-Gletscher Korridor-Achse (von Basislager über Eisfall bis ins Western Cwm)
+    float2 khumbuA = float2(-15645.0, -9751.0);
+    float2 khumbuD = float2(5145.0, 2351.0);
+    float khumbuLenSq = 31998226.0;
+    float khumbuT = clamp(dot(input.worldPos.xz - khumbuA, khumbuD) / khumbuLenSq, 0.0, 1.0);
+    float distToKhumbu = length(input.worldPos.xz - (khumbuA + khumbuD * khumbuT));
+    float khumbuCorridor = 1.0 - smoothstep(450.0, 750.0, distToKhumbu);
+
+    float valleyFloor = 1.0 - smoothstep(0.15, 0.45, geomMorph.b);
+    // A. Untere Khumbu-Gletscherzunge & Moränenbett (4.700m - 5.400m)
+    float lowerGlacierBand = smoothstep(4650.0, 4950.0, elev) * (1.0 - smoothstep(5350.0, 5500.0, elev));
+    float lowerGlacier = lowerGlacierBand * (1.0 - smoothstep(8.0, 18.0, slopeDeg)) * valleyFloor * khumbuCorridor * 0.95;
+
+    // B. Khumbu-Eisfall (5.300m - 6.300m) in den stürzenden Geländestufen zwischen Western Cwm und Basislager
+    float icefallBand = smoothstep(5250.0, 5450.0, elev) * (1.0 - smoothstep(6250.0, 6400.0, elev));
+    float icefallSlope = smoothstep(10.0, 18.0, slopeDeg) * (1.0 - smoothstep(38.0, 48.0, slopeDeg));
+    float icefallGlacier = icefallBand * valleyFloor * icefallSlope * khumbuCorridor * 1.35;
+
+    // C. Western Cwm & Karbecken (6.000m - 6.750m)
+    float upperGlacierBand = smoothstep(6000.0, 6200.0, elev) * (1.0 - smoothstep(6650.0, 6800.0, elev));
+    float upperGlacier = upperGlacierBand * (1.0 - smoothstep(12.0, 24.0, slopeDeg)) * valleyFloor * khumbuCorridor * 0.85;
+
+    float glacierWeight = clamp(lowerGlacier + icefallGlacier + upperGlacier, 0.0, 1.0);
 
     // Step 13 (1:1 Part XI): Talus / Schuttkegel am Wandfuß (30°–40°)
     // Unterhalb von Steilwänden bildet abbrechendes Gestein feines Geröll
     float talusSlopeWindow = smoothstep(26.0, 32.0, slopeDeg) * (1.0 - smoothstep(38.0, 44.0, slopeDeg));
     float talusConeWeight = geomMorph.g * talusSlopeWindow;
-    float screeFooting = clamp(talusConeWeight * 1.4 + geomMorph.g * smoothstep(35.0, 20.0, slopeDeg) * 0.6, 0.0, 1.0) * (1.0 - aboveSnowline * 0.50);
+    float screeFooting = clamp(talusConeWeight * 1.4 + geomMorph.g * (1.0 - smoothstep(20.0, 35.0, slopeDeg)) * 0.6, 0.0, 1.0) * (1.0 - aboveSnowline * 0.50);
     float screeWeight = screeFooting * (1.0 - glacierWeight);
 
     // Schnee bedeckt Hänge & Hochebenen oberhalb der Schneegrenze (z.B. Basecamp 5.300m zu 100% Schnee!)
@@ -573,14 +630,71 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 screeNorm = texScreeNormal.Sample(screeUV).rgb * 2.0 - 1.0;
     float screeRough = clamp(texScreeRoughness.Sample(screeUV).r * 0.15 + 0.85, 0.85, 0.96); // Matte talus ~0.92
 
+    // Step 15 (1:1 Part XIII): Prozedurales Fließspannungs-Gitter (Crevasses & Séracs)
+    float2 glacierFlow = normalize(geomN.xz + float2(0.0001, 0.0001));
+    float2 glacierCross = float2(-glacierFlow.y, glacierFlow.x);
+    float sFlow = dot(input.worldPos.xz, glacierFlow);
+    float sCross = dot(input.worldPos.xz, glacierCross);
+
+    // Kristalline Zugspannungs-Bruchlinien (mit Distanzfilter gegen Fernaliasing)
+    float crevasseDistFade = 1.0 - smoothstep(120.0, 500.0, distToCam);
+    float fractureWarp = sin(sCross * 0.08 + cos(sFlow * 0.06) * 2.3) * 3.2;
+    float crevasseWave = sin((sFlow + fractureWarp) * 0.24);
+    float seracCrossWave = cos(sCross * 0.17 + sin((sFlow + fractureWarp) * 0.11) * 1.8);
+
+    // Bis zu 25m tiefe Gletscherspalten (Zugspannung am Hangabbruch)
+    float crevasseFactor = (1.0 - smoothstep(-0.90, -0.25, crevasseWave)) * glacierWeight * smoothstep(8.0, 24.0, slopeDeg) * crevasseDistFade;
+    // Sérac-Eisnadeln
+    float seracFactor = smoothstep(0.35, 0.92, crevasseWave * 0.65 + seracCrossWave * 0.45) * glacierWeight * smoothstep(10.0, 26.0, slopeDeg) * crevasseDistFade;
+
+    // Spektrale Lichtabsorption im Gletschereis (Beer-Lambert Law):
+    // Rotes Licht wird ~70-100x stärker absorbiert als blaues Licht (sigma = [0.35, 0.038, 0.005] 1/m)
+    float icePenetrationDepth = crevasseFactor * 22.0;
+    float3 spectralTransmittance = exp(-float3(0.35, 0.038, 0.005) * icePenetrationDepth);
+    float3 deepCobaltIce = float3(0.06, 0.38, 0.62); // Natürliches tiefes Gletscher-Azurblau
+
     // Sample Glacier Ice with Multi-Scale Anti-Tiling
     float3 glacierAlbedo = sampleAntiTileMulti(texGlacierAlbedo, input.worldPos.xz, distToCam, 28.0);
+    // Authentische natürliche Eisfarbe: An der Oberfläche natürlicher Firnton, in tiefen Spalten magisches Azur/Kobaltblau
+    float3 surfaceIceTint = float3(0.82, 0.88, 0.94);
+    float3 crevasseWallAlbedo = lerp(glacierAlbedo * surfaceIceTint, deepCobaltIce, crevasseFactor * (1.0 - spectralTransmittance.r));
+    glacierAlbedo = lerp(glacierAlbedo * surfaceIceTint, crevasseWallAlbedo, crevasseFactor);
+
     float3 glacierNorm = texGlacierNormal.Sample(glacierUV).rgb * 2.0 - 1.0;
     float glacierRough = clamp(texGlacierRoughness.Sample(glacierUV).r * 0.35 + 0.25, 0.25, 0.45); // Smooth ice ~0.30
 
+    // Spaltenwände fallen steil ab: Normale wird in Fließrichtung zur Spaltenmitte hin abgelenkt
+    float crevasseWallTilt = cos((sFlow + fractureWarp) * 0.24) * crevasseFactor * 2.0;
+    float3 crevasseNormalPerturb = float3(glacierFlow.x, 0.0, glacierFlow.y) * crevasseWallTilt;
+
+    // Supraglaziale Schmelzwassertümpel (Glacial Meltwater Tarns) auf der Moränen-Talsohle
+    float tarnDistFade = clamp(1.0 - distToCam / 3500.0, 0.0, 1.0);
+    float tarnCoord1 = sin(input.worldPos.x * 0.028 + cos(input.worldPos.z * 0.022) * 2.0);
+    float tarnCoord2 = cos(input.worldPos.z * 0.030 + sin(input.worldPos.x * 0.024) * 1.8);
+    float tarnDepression = tarnCoord1 * tarnCoord2;
+    float tarnMask = smoothstep(0.55, 0.72, tarnDepression) * 
+                     (1.0 - smoothstep(2.0, 6.5, slopeDeg)) * 
+                     lowerGlacierBand * 
+                     (1.0 - aboveSnowline * 0.70) * 
+                     tarnDistFade;
+
+    // Glaziales Schmelzwasser: Türkis/Smaragd durch suspendiertes Gesteinsmehl (Rock Flour)
+    float3 tarnWaterColor = float3(0.04, 0.34, 0.38);
+    glacierAlbedo = lerp(glacierAlbedo, tarnWaterColor, tarnMask);
+    glacierRough = lerp(glacierRough, 0.02, tarnMask); // Spiegelglatte Wasseroberfläche
+
+    // Step 15 (1:1 Part XIII): In Spalten & an Sérac-Bruchwänden bricht Schnee ab -> 100% Gletschereis freigelegt
+    float crevasseIceExpose = clamp(crevasseFactor * 1.8 + seracFactor * 0.8, 0.0, 1.0);
+    float activeSnowW = snowWeight * (1.0 - crevasseIceExpose);
+    float activeGlacierW = clamp(glacierWeight + crevasseIceExpose, 0.0, 1.0);
+    float activePlanarTotal = activeSnowW + screeWeight + activeGlacierW + 0.00001;
+    activeSnowW /= activePlanarTotal;
+    activeGlacierW /= activePlanarTotal;
+    float activeScreeW = screeWeight / activePlanarTotal;
+
     // Composite Planar Surfaces
-    float3 planarAlbedo = snowAlbedo * snowWeight + screeAlbedo * screeWeight + glacierAlbedo * glacierWeight;
-    float planarRough = snowRough * snowWeight + screeRough * screeWeight + glacierRough * glacierWeight;
+    float3 planarAlbedo = snowAlbedo * activeSnowW + screeAlbedo * activeScreeW + glacierAlbedo * activeGlacierW;
+    float planarRough = snowRough * activeSnowW + screeRough * activeScreeW + glacierRough * activeGlacierW;
 
     // Step 13 (1:1 Part XI): Leopardenmuster & fehlerhaftes Noise-Clipping vollständig eliminieren
     // 1. Slope als Primärfilter: An Steilwänden über 45° darf kein Schnee haften!
@@ -613,6 +727,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // rockBlendFactor: 1.0 = nackter Fels, 0.0 = geschlossene Schneedecke
     float rockBlendFactor = 1.0 - snowMask;
 
+    // Step 15 (1:1 Part XIII): Auf dem Gletscher (insbes. Khumbu Eisfall 14°-38°) ist der Hang stürzendes Gletschereis / Séracs, kein Fels!
+    // Fels tritt erst an extremen Steilwänden (>44°) hervor, wo der Gletscher abbricht.
+    rockBlendFactor *= (1.0 - glacierWeight * (1.0 - smoothstep(38.0, 48.0, slopeDeg)));
+
     // Step 13 (1:1 Part XI): Granit/Kalkstein extrem rau (0.88 - 0.96, rein diffus, absolut null Glanz)
     float rockRoughPBR = clamp(triplanarRockRoughness * 0.08 + 0.90, 0.88, 0.96);
 
@@ -633,8 +751,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     // Normalen-Kombination in World Space (verhindert Verzerrungen an Steilhängen vollständig):
     float3 screeWorldNorm = normalize(tangent * screeNorm.x + bitangent * screeNorm.y + geomN * screeNorm.z);
-    float3 glacierWorldNorm = normalize(tangent * glacierNorm.x + bitangent * glacierNorm.y + geomN * glacierNorm.z);
-    float3 groundWorldNorm = normalize(triplanarSnowNormal * snowWeight + screeWorldNorm * screeWeight + glacierWorldNorm * glacierWeight);
+    float3 glacierWorldNorm = normalize(tangent * glacierNorm.x + bitangent * glacierNorm.y + geomN * glacierNorm.z + crevasseNormalPerturb);
+    float3 groundWorldNorm = normalize(triplanarSnowNormal * activeSnowW + screeWorldNorm * activeScreeW + glacierWorldNorm * activeGlacierW);
     float3 pbrNormal = normalize(lerp(groundWorldNorm, triplanarRockNormal, rockBlendFactor));
 
     // Step 9.2: High-Frequency Micro-Detail Normal Maps with Distance Fading
@@ -656,11 +774,22 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     float3 finalNormal = normalize(N + pbrNormal * 0.50);
 
+    // Step 15 (1:1 Part XIII): Supraglaziale Wasserwellen & Spaltenwand-Kippung
+    if (tarnMask > 0.001) {
+        float2 rippleUV = input.worldPos.xz * 3.5 + float2(pc.time * 0.7, pc.time * 0.4);
+        float3 waterNormal = normalize(float3(sin(rippleUV.x) * 0.035, 1.0, cos(rippleUV.y) * 0.035));
+        finalNormal = normalize(lerp(finalNormal, waterNormal, tarnMask * (1.0 - rockBlendFactor)));
+    }
+    if (crevasseFactor > 0.01) {
+        float3 crevasseWallTilt = normalize(finalNormal + float3(glacierFlow.x * 1.5, -0.95, glacierFlow.y * 1.5) * crevasseFactor);
+        finalNormal = normalize(lerp(finalNormal, crevasseWallTilt, crevasseFactor * (1.0 - rockBlendFactor) * 0.85));
+    }
+
     // Step 12: 4. Tiefes HBAO & Schluchten-Schwärze
     // Schmale Couloirs, Schluchtenböden und Wandfüße erhalten tiefe, unbarmherzige Kontaktschatten
     float gorgeCavity = smoothstep(0.12, 0.55, geomMorph.r) * smoothstep(16.0, 52.0, geomSlopeDeg);
-    float talusFootingOcclusion = geomMorph.g * smoothstep(36.0, 16.0, geomSlopeDeg) * 0.50;
-    float valleyDepthOcclusion = smoothstep(5400.0, 4200.0, input.worldPos.y) * (1.0 - smoothstep(0.65, 0.92, N.y)) * 0.45;
+    float talusFootingOcclusion = geomMorph.g * (1.0 - smoothstep(16.0, 36.0, geomSlopeDeg)) * 0.50;
+    float valleyDepthOcclusion = (1.0 - smoothstep(4200.0, 5400.0, input.worldPos.y)) * (1.0 - smoothstep(0.65, 0.92, N.y)) * 0.45;
     float localNormalCrevice = clamp(1.0 - dot(N, geomN), 0.0, 1.0) * 0.45;
 
     // Tiefen-Kontaktschatten (HBAO)
@@ -713,16 +842,24 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // Glitzern bei flachem Sonnenstand (Low Sun Glint)
     float lowSunGlint = 1.0 - smoothstep(0.12, 0.75, L.y);
     float snowSpecCoeff = 0.08 + 0.16 * lowSunGlint;
-    float specIntensity = (snowWeight * snowSpecCoeff + glacierWeight * 0.75) * (1.0 - rockBlendFactor);
+    float specIntensity = (activeSnowW * snowSpecCoeff + activeGlacierW * 0.75) * (1.0 - rockBlendFactor);
 
     // Diamond dust sparkle: microscopic ice crystal facets shimmering in direct sunlight
     float RdotV = clamp(dot(reflect(-L, finalNormal), V), 0.0, 1.0);
-    float sparkle = pow(RdotV, 128.0) * snowWeight * 0.40 * NdotL * sunVisibility * (1.0 - rockBlendFactor);
+    float sparkle = pow(RdotV, 128.0) * activeSnowW * 0.40 * NdotL * sunVisibility * (1.0 - rockBlendFactor);
     float specular = (pow(NdotH, specPower) * specIntensity * NdotL + sparkle) * sunVisibility;
 
     // Fresnel sheen: subtle glancing rim on ice, essentially zero on snow, strictly zero on rock
     float VdotN = clamp(dot(V, finalNormal), 0.0, 1.0);
-    float fresnel = pow(1.0 - VdotN, 5.0) * (snowWeight * 0.04 + glacierWeight * 0.50) * (1.0 - rockBlendFactor) * (demShadow * 0.7 + 0.3);
+    float fresnel = pow(1.0 - VdotN, 5.0) * (activeSnowW * 0.04 + activeGlacierW * 0.50) * (1.0 - rockBlendFactor) * (demShadow * 0.7 + 0.3);
+
+    // Step 15 (1:1 Part XIII): Supraglaziale Tümpel Wasser-Spiegelung (Fresnel & Sun Glint)
+    float tarnFresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(V, float3(0.0, 1.0, 0.0)), 0.0, 1.0), 5.0);
+    float3 waterH = normalize(L + V);
+    float waterSpecular = pow(clamp(dot(float3(0.0, 1.0, 0.0), waterH), 0.0, 1.0), 512.0) * 4.5 * sunVisibility;
+
+    specular = lerp(specular, waterSpecular, tarnMask * (1.0 - rockBlendFactor));
+    fresnel = lerp(fresnel, tarnFresnel * 0.90, tarnMask * (1.0 - rockBlendFactor));
 
     // Subsurface Scattering (Translucency) für Schnee an Bergkämmen (kein kreidiger Gips-Look)
     float sssSnowWeight = snowWeight * pow(1.0 - rockBlendFactor, 1.8);
@@ -734,9 +871,16 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 sssVolumetricTint = float3(0.74, 0.88, 1.02) * pc.sunColor.rgb * sssWrapTerm * 0.14 * sunVisibility;
     float3 snowSSS = (sssForwardGlow + sssVolumetricTint) * sssSnowWeight * (ao * 0.65 + 0.35);
 
+    // Step 15 (1:1 Part XIII): Spektrales Spalten-Leuchten (Kobalt-Azur internes Streulicht)
+    // Tief in den Spalten wird rotes Licht absorbiert; azurnes/kobaltblaues Licht leuchtet diffus heraus
+    float3 crevasseInternalGlow = float3(0.03, 0.28, 0.55) * spectralTransmittance * 
+                                  (pc.sunColor.rgb * 0.25 * sunVisibility + skyLight * 1.5) * 
+                                  crevasseFactor * (1.0 - rockBlendFactor);
+
     float3 litColor = compositeAlbedo * (directLight + totalAmbient) + 
                       float3(specular + fresnel, specular + fresnel, specular + fresnel) + 
-                      snowSSS;
+                      snowSSS + 
+                      crevasseInternalGlow;
 
     // 10. Volumetric Valley Cloud Sea (Wolkenmeer)
     float cloudDensitySetting = pc.cameraPos.w;

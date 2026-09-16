@@ -124,6 +124,7 @@ WindowEventState Window::pollEvents() {
                     case SDLK_2: if (isDown) m_lastEvents.teleportPreset = 2; break;
                     case SDLK_3: if (isDown) m_lastEvents.teleportPreset = 3; break;
                     case SDLK_4: if (isDown) m_lastEvents.teleportPreset = 4; break;
+                    case SDLK_5: if (isDown) m_lastEvents.teleportPreset = 5; break;
                     case SDLK_t: if (isDown) m_lastEvents.toggleTimeOfDay = true; break;
                     case SDLK_b: if (isDown) m_lastEvents.toggleBlizzard = true; break;
                     case SDLK_l: if (isDown) m_lastEvents.toggleLiveWeather = true; break;
