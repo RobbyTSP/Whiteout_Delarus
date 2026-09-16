@@ -83,12 +83,38 @@ private:
     float m_targetLuminance = 1.0f;
     float m_lastFrameTime = 0.0f;
 
+    // Step 18: 3D Boulder Instancing Data
+    struct BoulderInstanceData {
+        glm::mat4 model;
+        glm::vec4 params; // x = lichenDensity, y = rockType, z = snowDusting, w = scale
+    };
+
     // Terrain geometry
     std::unique_ptr<rhi::VulkanBuffer> m_vertexBuffer;
     std::unique_ptr<rhi::VulkanBuffer> m_indexBuffer;
     uint32_t m_indexCount = 0;
     float m_minElevation = 3651.0f;
     float m_maxElevation = 8753.0f;
+    std::vector<float> m_demElevations;
+
+    // Step 18: CDLOD / Nanite-Level Micro-Terrain (0.25m Climbing Resolution)
+    void initMicroTerrainMesh();
+    std::unique_ptr<rhi::VulkanPipeline> m_microPipeline;
+    std::unique_ptr<rhi::VulkanBuffer> m_microVertexBuffer;
+    std::unique_ptr<rhi::VulkanBuffer> m_microIndexBuffer;
+    uint32_t m_microIndexCount = 0;
+
+    // Step 18: 3D Boulder & Talus Instancing
+    void initBoulderMeshAndInstances();
+    void updateBoulderInstances(const glm::vec3& camPos);
+    float getDemElevation(float worldX, float worldZ) const;
+    glm::vec3 getDemNormal(float worldX, float worldZ) const;
+    std::unique_ptr<rhi::VulkanPipeline> m_boulderPipeline;
+    std::unique_ptr<rhi::VulkanBuffer> m_boulderVertexBuffer;
+    std::unique_ptr<rhi::VulkanBuffer> m_boulderIndexBuffer;
+    std::unique_ptr<rhi::VulkanBuffer> m_boulderInstanceBuffer;
+    uint32_t m_boulderIndexCount = 0;
+    uint32_t m_boulderInstanceCount = 0;
 
     // Multi-texture PBR & Satellite resources
     void initTexturesAndDescriptors();

@@ -51,6 +51,13 @@ void Player::teleportToPreset(int preset) {
             m_pitch = -8.0f;
             m_currentLocationName = "Khumbu Icefall Séracs & Crevasses (5,867m)";
             break;
+        case 6: // Third Step Climbing Pinnacle & North Ridge (8,690m)
+            m_position.x = -8690.0f;
+            m_position.z = -7820.0f;
+            m_yaw = -65.0f;
+            m_pitch = 14.0f;
+            m_currentLocationName = "Third Step Climbing Pinnacle (8,690m)";
+            break;
         default:
             return;
     }
@@ -109,7 +116,7 @@ void Player::update(float deltaTime, const core::WindowEventState& input) {
         toggleMode();
     }
 
-    if (input.teleportPreset >= 1 && input.teleportPreset <= 4) {
+    if (input.teleportPreset >= 1 && input.teleportPreset <= 6) {
         teleportToPreset(input.teleportPreset);
     }
 
@@ -280,6 +287,24 @@ std::string Player::getTelemetryString() const {
            << " | Footing: " << m_currentGeology.surfaceTypeName
            << " | Jet Stream: WNW " << static_cast<int>(m_currentGeology.jetStreamSpeedKmh) << " km/h"
            << " (Chill: " << static_cast<int>(m_currentGeology.windChillCelsius) << "°C)";
+
+        // Hotspot Proximity Recognition (Step 18)
+        float dHillary = glm::length(glm::vec2(m_position.x - (-8535.0f), m_position.z - (-7935.0f)));
+        float dThird = glm::length(glm::vec2(m_position.x - (-8690.0f), m_position.z - (-7820.0f)));
+        float dCol = glm::length(glm::vec2(m_position.x - (-7740.0f), m_position.z - (-4995.0f)));
+        float dIcefall = glm::length(glm::vec2(m_position.x - (-13800.0f), m_position.z - (-8600.0f)));
+
+        if (dHillary < 65.0f) {
+            ss << " | [HOTSPOT: Hillary Step (8,790m) - 0.25m Kletterkanten]";
+        } else if (dThird < 65.0f) {
+            ss << " | [HOTSPOT: Third Step (8,690m) - Vertikaler Kalksteinturm]";
+        } else if (dCol < 85.0f) {
+            ss << " | [HOTSPOT: South Col (7,906m) - Xanthoria elegans Flechten]";
+        } else if (dIcefall < 85.0f) {
+            ss << " | [HOTSPOT: Khumbu Icefall - Séracs & Spalten]";
+        } else {
+            ss << " | [CDLOD: 0.25m Kletter-Auflösung]";
+        }
     } else {
         ss << "[DRONE FLY] "
            << "Alt: " << static_cast<int>(m_position.y) << "m | "
@@ -288,7 +313,7 @@ std::string Player::getTelemetryString() const {
            << "Far: 150km";
     }
 
-    ss << " | [Tab/V]: Switch Mode | [1-4]: Teleport";
+    ss << " | [Tab/V]: Mode | [1-6]: Teleport (1:BC, 2:Hillary, 3:SouthCol, 4:AmaDablam, 5:Icefall, 6:ThirdStep)";
     return ss.str();
 }
 

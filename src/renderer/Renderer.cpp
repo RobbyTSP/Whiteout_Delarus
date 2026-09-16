@@ -45,6 +45,59 @@ Renderer::Renderer(core::Window& window)
         true // isSky
     );
 
+    // Step 18: CDLOD Micro-Terrain Pipeline (0.25m Climbing Resolution)
+    std::string microVertSpv = SHADER_DIR "/micro_terrain_vert.spv";
+    std::string microFragSpv = SHADER_DIR "/micro_terrain_frag.spv";
+    auto microBinding = rhi::Vertex::getBindingDescription();
+    auto microAttrs = rhi::Vertex::getAttributeDescriptions();
+    m_microPipeline = std::make_unique<rhi::VulkanPipeline>(
+        *m_context,
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        m_swapchain->getDepthFormat(),
+        microVertSpv,
+        microFragSpv,
+        std::vector<VkVertexInputBindingDescription>{microBinding},
+        microAttrs,
+        m_pipeline->getDescriptorSetLayout(),
+        sizeof(rhi::TerrainPushConstants),
+        VK_CULL_MODE_NONE
+    );
+
+    // Step 18: 3D Boulder & Talus Instancing Pipeline
+    std::vector<VkVertexInputBindingDescription> boulderBindings(2);
+    boulderBindings[0].binding = 0;
+    boulderBindings[0].stride = sizeof(rhi::Vertex);
+    boulderBindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    boulderBindings[1].binding = 1;
+    boulderBindings[1].stride = sizeof(BoulderInstanceData);
+    boulderBindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+    std::vector<VkVertexInputAttributeDescription> boulderAttributes;
+    boulderAttributes.push_back({0, 0, VK_FORMAT_R32G32B32_SFLOAT, static_cast<uint32_t>(offsetof(rhi::Vertex, position))});
+    boulderAttributes.push_back({1, 0, VK_FORMAT_R32G32B32_SFLOAT, static_cast<uint32_t>(offsetof(rhi::Vertex, normal))});
+    boulderAttributes.push_back({2, 0, VK_FORMAT_R32G32_SFLOAT, static_cast<uint32_t>(offsetof(rhi::Vertex, uv))});
+
+    boulderAttributes.push_back({3, 1, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<uint32_t>(offsetof(BoulderInstanceData, model) + 0 * sizeof(glm::vec4))});
+    boulderAttributes.push_back({4, 1, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<uint32_t>(offsetof(BoulderInstanceData, model) + 1 * sizeof(glm::vec4))});
+    boulderAttributes.push_back({5, 1, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<uint32_t>(offsetof(BoulderInstanceData, model) + 2 * sizeof(glm::vec4))});
+    boulderAttributes.push_back({6, 1, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<uint32_t>(offsetof(BoulderInstanceData, model) + 3 * sizeof(glm::vec4))});
+    boulderAttributes.push_back({7, 1, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<uint32_t>(offsetof(BoulderInstanceData, params))});
+
+    std::string boulderVertSpv = SHADER_DIR "/boulder_vert.spv";
+    std::string boulderFragSpv = SHADER_DIR "/boulder_frag.spv";
+    m_boulderPipeline = std::make_unique<rhi::VulkanPipeline>(
+        *m_context,
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        m_swapchain->getDepthFormat(),
+        boulderVertSpv,
+        boulderFragSpv,
+        boulderBindings,
+        boulderAttributes,
+        m_pipeline->getDescriptorSetLayout(),
+        sizeof(rhi::TerrainPushConstants)
+    );
+
     createCommandBuffers();
     initSyncObjects();
     initTexturesAndDescriptors();
@@ -61,6 +114,9 @@ Renderer::Renderer(core::Window& window)
     } else {
         generateTerrainMesh(256);
     }
+
+    initMicroTerrainMesh();
+    initBoulderMeshAndInstances();
 }
 
 Renderer::~Renderer() {
@@ -72,6 +128,13 @@ Renderer::~Renderer() {
     m_postprocessPipeline.reset();
     m_histogramBuffer.reset();
     m_exposureBuffer.reset();
+    m_microPipeline.reset();
+    m_microVertexBuffer.reset();
+    m_microIndexBuffer.reset();
+    m_boulderPipeline.reset();
+    m_boulderVertexBuffer.reset();
+    m_boulderIndexBuffer.reset();
+    m_boulderInstanceBuffer.reset();
 
     if (m_histogramDescriptorLayout != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(device, m_histogramDescriptorLayout, nullptr);
@@ -330,6 +393,7 @@ void Renderer::initTexturesAndDescriptors() {
     if (demFile.is_open()) {
         demFile.read(reinterpret_cast<char*>(demData.data()), demData.size() * sizeof(float));
         demFile.close();
+        if (m_demElevations.empty()) m_demElevations = demData;
         std::cout << "[Renderer] Loaded 1024x1024 Float32 DEM ("
                   << (demData.size() * sizeof(float)) / 1048576
                   << " MB) into GPU VRAM for Cone-Tracing Shadows." << std::endl;
@@ -712,6 +776,7 @@ void Renderer::loadEverestDem(const std::string& manifestPath, const std::string
     std::vector<float> demData(1024 * 1024);
     demFile.read(reinterpret_cast<char*>(demData.data()), demData.size() * sizeof(float));
     demFile.close();
+    m_demElevations = demData;
 
     uint32_t demWidth = 1024;
     uint32_t demHeight = 1024;
@@ -812,6 +877,324 @@ void Renderer::loadEverestDem(const std::string& manifestPath, const std::string
     );
 }
 
+float Renderer::getDemElevation(float worldX, float worldZ) const {
+    if (m_demElevations.empty()) return 5000.0f;
+    float meshWidth = 34560.0f;
+    float meshDepth = 34560.0f;
+    uint32_t demWidth = 1024;
+    uint32_t demHeight = 1024;
+
+    float u = std::clamp((worldX / meshWidth) + 0.5f, 0.0f, 1.0f);
+    float v = std::clamp((worldZ / meshDepth) + 0.5f, 0.0f, 1.0f);
+
+    float gx = u * static_cast<float>(demWidth - 1);
+    float gz = v * static_cast<float>(demHeight - 1);
+
+    uint32_t x0 = static_cast<uint32_t>(std::floor(gx));
+    uint32_t z0 = static_cast<uint32_t>(std::floor(gz));
+    uint32_t x1 = std::min(x0 + 1, demWidth - 1);
+    uint32_t z1 = std::min(z0 + 1, demHeight - 1);
+
+    float tx = gx - static_cast<float>(x0);
+    float tz = gz - static_cast<float>(z0);
+
+    float h00 = m_demElevations[z0 * demWidth + x0];
+    float h10 = m_demElevations[z0 * demWidth + x1];
+    float h01 = m_demElevations[z1 * demWidth + x0];
+    float h11 = m_demElevations[z1 * demWidth + x1];
+
+    float h0 = h00 * (1.0f - tx) + h10 * tx;
+    float h1 = h01 * (1.0f - tx) + h11 * tx;
+
+    return h0 * (1.0f - tz) + h1 * tz;
+}
+
+glm::vec3 Renderer::getDemNormal(float worldX, float worldZ) const {
+    constexpr float eps = 4.0f;
+    float hL = getDemElevation(worldX - eps, worldZ);
+    float hR = getDemElevation(worldX + eps, worldZ);
+    float hD = getDemElevation(worldX, worldZ - eps);
+    float hU = getDemElevation(worldX, worldZ + eps);
+
+    float dx = (hR - hL) / (2.0f * eps);
+    float dz = (hU - hD) / (2.0f * eps);
+
+    return glm::normalize(glm::vec3(-dx, 1.0f, -dz));
+}
+
+void Renderer::initMicroTerrainMesh() {
+    std::cout << "[Renderer] Generating 0.25m CDLOD Micro-Terrain Grid (80m x 80m, 320x320 quads)..." << std::endl;
+    constexpr uint32_t quads = 320;
+    constexpr uint32_t vertsPerSide = quads + 1;
+    constexpr float spacing = 0.25f;
+    constexpr float extent = 40.0f;
+
+    std::vector<rhi::Vertex> vertices;
+    vertices.reserve(vertsPerSide * vertsPerSide);
+
+    for (uint32_t gz = 0; gz < vertsPerSide; gz++) {
+        float localZ = static_cast<float>(gz) * spacing - extent;
+        float v = static_cast<float>(gz) / static_cast<float>(quads);
+        for (uint32_t gx = 0; gx < vertsPerSide; gx++) {
+            float localX = static_cast<float>(gx) * spacing - extent;
+            float u = static_cast<float>(gx) / static_cast<float>(quads);
+
+            rhi::Vertex vert{};
+            vert.position = glm::vec3(localX, 0.0f, localZ);
+            vert.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            vert.uv = glm::vec2(u, v);
+            vertices.push_back(vert);
+        }
+    }
+
+    std::vector<uint32_t> indices;
+    indices.reserve(quads * quads * 6);
+
+    for (uint32_t gz = 0; gz < quads; gz++) {
+        for (uint32_t gx = 0; gx < quads; gx++) {
+            uint32_t topLeft = gz * vertsPerSide + gx;
+            uint32_t topRight = topLeft + 1;
+            uint32_t bottomLeft = (gz + 1) * vertsPerSide + gx;
+            uint32_t bottomRight = bottomLeft + 1;
+
+            indices.push_back(topLeft);
+            indices.push_back(bottomLeft);
+            indices.push_back(topRight);
+
+            indices.push_back(topRight);
+            indices.push_back(bottomLeft);
+            indices.push_back(bottomRight);
+        }
+    }
+
+    m_microIndexCount = static_cast<uint32_t>(indices.size());
+
+    m_microVertexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
+        *m_context,
+        vertices.data(),
+        vertices.size() * sizeof(rhi::Vertex),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+    );
+
+    m_microIndexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
+        *m_context,
+        indices.data(),
+        indices.size() * sizeof(uint32_t),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+    );
+
+    std::cout << "[Renderer] CDLOD Micro-Terrain initialized ("
+              << vertices.size() << " vertices, " << (indices.size() / 3)
+              << " triangles @ 0.25m resolution)." << std::endl;
+}
+
+void Renderer::initBoulderMeshAndInstances() {
+    std::cout << "[Renderer] Initializing 3D Frost-Shattered Boulder Mesh & Instance Buffer..." << std::endl;
+
+    // Procedural faceted crystalline rock mesh (frost-split boulder)
+    std::vector<glm::vec3> rawVerts = {
+        // Top cap
+        { 0.0f,  0.95f,  0.0f},
+        // Upper ring
+        {-0.55f, 0.72f, -0.45f},
+        { 0.48f, 0.68f, -0.52f},
+        { 0.62f, 0.70f,  0.42f},
+        {-0.42f, 0.75f,  0.58f},
+        // Mid-upper ring
+        {-0.88f, 0.25f, -0.25f},
+        {-0.22f, 0.32f, -0.85f},
+        { 0.65f, 0.22f, -0.68f},
+        { 0.92f, 0.28f,  0.18f},
+        { 0.45f, 0.30f,  0.82f},
+        {-0.48f, 0.22f,  0.78f},
+        // Mid-lower ring
+        {-0.82f, -0.32f, -0.35f},
+        {-0.15f, -0.28f, -0.82f},
+        { 0.58f, -0.35f, -0.58f},
+        { 0.85f, -0.25f,  0.22f},
+        { 0.38f, -0.32f,  0.75f},
+        {-0.52f, -0.38f,  0.68f},
+        // Bottom cap ring
+        {-0.42f, -0.78f, -0.32f},
+        { 0.35f, -0.75f, -0.38f},
+        { 0.42f, -0.82f,  0.32f},
+        {-0.35f, -0.80f,  0.38f},
+        // Bottom apex
+        { 0.0f,  -0.92f,  0.0f}
+    };
+
+    std::vector<uint32_t> rawIndices = {
+        // Top fan
+        0, 1, 2,   0, 2, 3,   0, 3, 4,   0, 4, 1,
+        // Upper to mid-upper
+        1, 5, 6,   1, 6, 2,   2, 6, 7,   2, 7, 3,   3, 7, 8,   3, 8, 9,   3, 9, 4,   4, 9, 10,  4, 10, 5,  4, 5, 1,
+        // Mid-upper to mid-lower
+        5, 11, 12, 5, 12, 6,  6, 12, 13, 6, 13, 7,  7, 13, 14, 7, 14, 8,  8, 14, 15, 8, 15, 9,  9, 15, 16, 9, 16, 10, 10, 16, 11, 10, 11, 5,
+        // Mid-lower to bottom cap ring
+        11, 17, 18, 11, 18, 12, 12, 18, 13, 13, 18, 19, 13, 19, 14, 14, 19, 15, 15, 19, 20, 15, 20, 16, 16, 20, 17, 16, 17, 11,
+        // Bottom fan (wound so normals point outwards/downwards)
+        21, 17, 18,   21, 18, 19,   21, 19, 20,   21, 20, 17
+    };
+
+    std::vector<rhi::Vertex> vertices;
+    std::vector<uint32_t> indices;
+    vertices.reserve(rawIndices.size());
+    indices.reserve(rawIndices.size());
+
+    for (size_t i = 0; i < rawIndices.size(); i += 3) {
+        glm::vec3 p0 = rawVerts[rawIndices[i]];
+        glm::vec3 p1 = rawVerts[rawIndices[i + 1]];
+        glm::vec3 p2 = rawVerts[rawIndices[i + 2]];
+
+        glm::vec3 centroid = (p0 + p1 + p2) / 3.0f;
+        glm::vec3 faceNorm = glm::cross(p1 - p0, p2 - p0);
+        if (glm::dot(faceNorm, centroid) < 0.0f) {
+            std::swap(p1, p2);
+            faceNorm = -faceNorm;
+        }
+        faceNorm = glm::normalize(faceNorm);
+
+        uint32_t baseIdx = static_cast<uint32_t>(vertices.size());
+
+        rhi::Vertex v0{}, v1{}, v2{};
+        v0.position = p0; v0.normal = faceNorm; v0.uv = glm::vec2(p0.x, p0.z) * 0.5f + 0.5f;
+        v1.position = p1; v1.normal = faceNorm; v1.uv = glm::vec2(p1.x, p1.z) * 0.5f + 0.5f;
+        v2.position = p2; v2.normal = faceNorm; v2.uv = glm::vec2(p2.x, p2.z) * 0.5f + 0.5f;
+
+        vertices.push_back(v0);
+        vertices.push_back(v1);
+        vertices.push_back(v2);
+
+        indices.push_back(baseIdx);
+        indices.push_back(baseIdx + 1);
+        indices.push_back(baseIdx + 2);
+    }
+
+    m_boulderIndexCount = static_cast<uint32_t>(indices.size());
+
+    m_boulderVertexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
+        *m_context,
+        vertices.data(),
+        vertices.size() * sizeof(rhi::Vertex),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+    );
+
+    m_boulderIndexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
+        *m_context,
+        indices.data(),
+        indices.size() * sizeof(uint32_t),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+    );
+
+    // Host-visible instance buffer for up to 1024 boulders
+    m_boulderInstanceBuffer = std::make_unique<rhi::VulkanBuffer>(
+        *m_context,
+        1024 * sizeof(BoulderInstanceData),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    std::cout << "[Renderer] Boulder mesh ready (" << (indices.size() / 3) << " facets, capacity: 1024 instances)." << std::endl;
+}
+
+void Renderer::updateBoulderInstances(const glm::vec3& camPos) {
+    if (!m_boulderInstanceBuffer || m_demElevations.empty()) return;
+
+    constexpr float gridStep = 4.8f;
+    int baseCX = static_cast<int>(std::floor(camPos.x / gridStep));
+    int baseCZ = static_cast<int>(std::floor(camPos.z / gridStep));
+
+    std::vector<BoulderInstanceData> instances;
+    instances.reserve(768);
+
+    for (int dz = -14; dz <= 14; dz++) {
+        for (int dx = -14; dx <= 14; dx++) {
+            int cx = baseCX + dx;
+            int cz = baseCZ + dz;
+
+            // Deterministic spatial hash
+            uint32_t seed = static_cast<uint32_t>(cx * 73856093 ^ cz * 19349663);
+            auto hashFloat = [](uint32_t& s) {
+                s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+                return static_cast<float>(s & 0xFFFF) / 65535.0f;
+            };
+
+            float jitterX = (hashFloat(seed) - 0.5f) * gridStep * 0.85f;
+            float jitterZ = (hashFloat(seed) - 0.5f) * gridStep * 0.85f;
+
+            float worldX = (static_cast<float>(cx) + 0.5f) * gridStep + jitterX;
+            float worldZ = (static_cast<float>(cz) + 0.5f) * gridStep + jitterZ;
+
+            float dCam = glm::length(glm::vec2(worldX - camPos.x, worldZ - camPos.z));
+            // Keep clearance around player stance and limit outer radius
+            if (dCam < 3.5f || dCam > 54.0f) continue;
+
+            float elev = getDemElevation(worldX, worldZ);
+            glm::vec3 norm = getDemNormal(worldX, worldZ);
+            float slopeDeg = glm::degrees(std::acos(std::clamp(norm.y, 0.0f, 1.0f)));
+
+            if (slopeDeg > 34.0f) continue; // Loose boulders tumble off steep faces, resting only on scree cones & moraines <= 34°
+
+            // Spawn probability based on alpine terrain geomorphology
+            float spawnRoll = hashFloat(seed);
+            float spawnProb = 0.12f;
+            if (slopeDeg >= 20.0f && slopeDeg <= 34.0f) {
+                spawnProb = 0.42f; // Talus scree fan
+            }
+            if (elev >= 5200.0f && elev <= 5500.0f) {
+                spawnProb = 0.36f; // Khumbu Base Camp moraine
+            }
+            if (elev >= 7800.0f && elev <= 8050.0f && slopeDeg < 25.0f) {
+                spawnProb = 0.32f; // South Col high plateau
+            }
+
+            if (spawnRoll > spawnProb) continue;
+
+            // Scale: 0.45m to 2.6m
+            float baseScale = 0.45f + std::pow(hashFloat(seed), 2.2f) * 2.15f;
+            float scaleX = baseScale * (0.8f + hashFloat(seed) * 0.4f);
+            float scaleY = baseScale * (0.6f + hashFloat(seed) * 0.5f);
+            float scaleZ = baseScale * (0.8f + hashFloat(seed) * 0.4f);
+
+            // Naturally embed into ground (bottom half buried in snow / gravel)
+            float embedY = scaleY * 0.52f;
+            float posY = elev - embedY;
+
+            // Random rotation
+            float yaw = hashFloat(seed) * 6.283185f;
+            glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(worldX, posY, worldZ));
+            model = glm::rotate(model, yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+            model = glm::scale(model, glm::vec3(scaleX, scaleY, scaleZ));
+
+            BoulderInstanceData inst{};
+            inst.model = model; // Column-major GLM matrix mapped to vertex attributes
+
+            // Lichen density: higher on sheltered rock faces between 4,800m and 8,300m
+            float lichenAlt = (elev >= 4800.0f && elev <= 8300.0f) ? 1.0f : 0.0f;
+            inst.params.x = (slopeDeg > 20.0f ? 0.85f : 0.35f) * lichenAlt * hashFloat(seed);
+
+            // Rock formation: 0 = granite basement, 1 = Qomolangma limestone, 2 = Yellow Band
+            float strataElev = elev - 0.22f * worldZ;
+            if (strataElev >= 8600.0f) inst.params.y = 1.0f;
+            else if (strataElev >= 8180.0f) inst.params.y = 2.0f;
+            else inst.params.y = 0.0f;
+
+            // Snow dusting
+            inst.params.z = (elev > 5050.0f) ? (0.6f + hashFloat(seed) * 0.4f) : 0.15f;
+            inst.params.w = baseScale;
+
+            instances.push_back(inst);
+            if (instances.size() >= 1000) break;
+        }
+        if (instances.size() >= 1000) break;
+    }
+
+    m_boulderInstanceCount = static_cast<uint32_t>(instances.size());
+    if (m_boulderInstanceCount > 0) {
+        m_boulderInstanceBuffer->upload(instances.data(), instances.size() * sizeof(BoulderInstanceData));
+    }
+}
+
 void Renderer::renderFrame(
     const core::Camera& camera,
     float totalTime,
@@ -889,6 +1272,9 @@ void Renderer::renderFrame(
             sunScreen.w = glm::mix(0.85f, 1.4f, sunElev);
         }
     }
+
+    // Step 18: Update dynamic boulder instances around camera
+    updateBoulderInstances(camera.getPosition());
 
     VkExtent2D extent = m_swapchain->getExtent();
 
@@ -1020,6 +1406,57 @@ void Renderer::renderFrame(
         vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
         vkCmdBindIndexBuffer(cmd, m_indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, m_indexCount, 1, 0, 0, 0);
+    }
+
+    // Step 18: Draw 0.25m CDLOD Micro-Terrain Mesh (Climbing Vicinity)
+    if (m_microPipeline && m_microVertexBuffer && m_microIndexCount > 0) {
+        float snapSpacing = 0.25f;
+        float snapX = std::floor(camera.getPosition().x / snapSpacing) * snapSpacing;
+        float snapZ = std::floor(camera.getPosition().z / snapSpacing) * snapSpacing;
+
+        rhi::TerrainPushConstants microPush = pushConstants;
+        microPush.model = glm::translate(glm::mat4(1.0f), glm::vec3(snapX, 0.0f, snapZ));
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_microPipeline->getHandle());
+        vkCmdPushConstants(
+            cmd,
+            m_microPipeline->getLayout(),
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0,
+            sizeof(rhi::TerrainPushConstants),
+            &microPush
+        );
+        if (m_descriptorSet != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_microPipeline->getLayout(), 0, 1, &m_descriptorSet, 0, nullptr);
+        }
+
+        VkBuffer microVBs[] = {m_microVertexBuffer->getHandle()};
+        VkDeviceSize microOffsets[] = {0};
+        vkCmdBindVertexBuffers(cmd, 0, 1, microVBs, microOffsets);
+        vkCmdBindIndexBuffer(cmd, m_microIndexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, m_microIndexCount, 1, 0, 0, 0);
+    }
+
+    // Step 18: Draw GPU-Instanced 3D Boulders & Talus Rocks
+    if (m_boulderPipeline && m_boulderVertexBuffer && m_boulderInstanceBuffer && m_boulderInstanceCount > 0) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_boulderPipeline->getHandle());
+        vkCmdPushConstants(
+            cmd,
+            m_boulderPipeline->getLayout(),
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0,
+            sizeof(rhi::TerrainPushConstants),
+            &pushConstants
+        );
+        if (m_descriptorSet != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_boulderPipeline->getLayout(), 0, 1, &m_descriptorSet, 0, nullptr);
+        }
+
+        VkBuffer boulderVBs[] = {m_boulderVertexBuffer->getHandle(), m_boulderInstanceBuffer->getHandle()};
+        VkDeviceSize boulderOffsets[] = {0, 0};
+        vkCmdBindVertexBuffers(cmd, 0, 2, boulderVBs, boulderOffsets);
+        vkCmdBindIndexBuffer(cmd, m_boulderIndexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, m_boulderIndexCount, m_boulderInstanceCount, 0, 0, 0);
     }
 
     vkCmdEndRendering(cmd);

@@ -61,6 +61,20 @@ public:
         bool isFullscreen = true
     );
 
+    // Constructor for arbitrary vertex & instance binding descriptions
+    VulkanPipeline(
+        const VulkanContext& context,
+        VkFormat colorFormat,
+        VkFormat depthFormat,
+        const std::string& vertSpvPath,
+        const std::string& fragSpvPath,
+        const std::vector<VkVertexInputBindingDescription>& bindingDescriptions,
+        const std::vector<VkVertexInputAttributeDescription>& attributeDescriptions,
+        VkDescriptorSetLayout externalDescriptorLayout = VK_NULL_HANDLE,
+        uint32_t pushConstantSize = sizeof(TerrainPushConstants),
+        VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT
+    );
+
     ~VulkanPipeline();
 
     VulkanPipeline(const VulkanPipeline&) = delete;

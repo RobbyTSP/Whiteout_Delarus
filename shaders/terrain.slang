@@ -418,6 +418,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 L = normalize(pc.sunDir.xyz);
     float distToCam = length(pc.cameraPos.xyz - input.worldPos);
 
+
     // 1. Sample Macro Textures (ESRI Satellite + Recomputed Macro Normal + Sculpted Geomorphology)
     float4 satColor = texSatellite.Sample(input.uv);
     float3 macroNormSample = texMacroNormal.Sample(input.uv).rgb * 2.0 - 1.0;

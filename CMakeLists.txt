@@ -67,6 +67,10 @@ add_slang_shader("histogram.slang" "compute" "computeMain" "histogram_comp.spv")
 add_slang_shader("adapt_exposure.slang" "compute" "computeMain" "adapt_exposure_comp.spv")
 add_slang_shader("postprocess.slang" "vertex" "vertexMain" "postprocess_vert.spv")
 add_slang_shader("postprocess.slang" "fragment" "fragmentMain" "postprocess_frag.spv")
+add_slang_shader("micro_terrain.slang" "vertex" "vertexMain" "micro_terrain_vert.spv")
+add_slang_shader("micro_terrain.slang" "fragment" "fragmentMain" "micro_terrain_frag.spv")
+add_slang_shader("boulder.slang" "vertex" "vertexMain" "boulder_vert.spv")
+add_slang_shader("boulder.slang" "fragment" "fragmentMain" "boulder_frag.spv")
 
 add_custom_target(compile_shaders ALL DEPENDS ${SPV_TARGETS})
 
