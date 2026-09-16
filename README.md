@@ -686,6 +686,55 @@ Physikalisch fundierte Eisfall-Strukturierung, spektrale Lichtabsorption und sup
   * Erkennung von `Khumbu Icefall (Active Séracs & 25m Crevasses)` bei $5.350\text{ m}$ bis $6.250\text{ m}$ auf $14^\circ$–$38^\circ$ Hangneigung.
   * Erkennung von `Glacial Blue Ice (Khumbu Glacier & Moraine)` in flacheren Becken.
 
+
+---
+
+## 🌌 Schritt 16: Stratosphären-Optik & Eiskristall-Halos (1:1 Part XIV - Abgeschlossen)
+
+Physikalisch exakte Modellierung der extremen Hochatmosphäre der Todeszone ($>7.000\text{ m}$ bis $8.848\text{ m}$), des Ozon-Dämmerungsspektrums und der Eiskristall-Atmosphärenoptik ([`shaders/sky.slang`](shaders/sky.slang)):
+
+### 1. Barometrische Höhenformel & Dichteverteilung der Todeszone ($337\text{ hPa}$)
+* **Barometrische Dichteabnahme:**
+  * Reale Höhenformel des Himalayas mit Skalenhöhe $H_{\text{scale}} \approx 7.200\text{ m}$:
+    $$p(h) = p_0 \cdot \exp\left(-\frac{h}{H_{\text{scale}}}\right), \quad \rho_{\text{rel}}(h) = \exp\left(-\frac{h}{7.200\text{ m}}\right)$$
+  * Am Everest-Gipfel ($8.848\text{ m}$) sinkt der barometrische Luftdruck auf $\approx 296\text{ hPa}$ ($\rho_{\text{rel}} \approx 0,292$, weniger als ein Drittel des Meeresniveaus).
+  * An der Schwelle zur Todeszone ($8.000\text{ m}$, Südsattel): $\approx 334\text{ hPa}$ ($\rho_{\text{rel}} \approx 0,330$).
+  * Am Basislager ($5.300\text{ m}$): $\approx 485\text{ hPa}$ ($\rho_{\text{rel}} \approx 0,479$).
+* **Kosmisch tiefes Indigo-Schwarzblau am Zenit:**
+  * Da die Moleküldichte der Luft über $7.500\text{ m}$ dramatisch einbricht, existiert kaum noch streuende Luftsäule über dem Kopf des Bergsteigers.
+  * Der Himmelszenit dunkelt von alpinem Azurblau ($RGB = [0,095, 0,210, 0,480]$) in ein surreales, tiefes Kosmos-Schwarzblau ($RGB = [0,0035, 0,0065, 0,024]$) ab.
+  * Die Schräg-Luftmasse (*Slant Optical Depth*) zum Horizont hin erhält die leuchtende Distanz-Atmosphäre aufrecht, wodurch ein atemberaubender Kontrast zwischen schwarzem Zenit und strahlendem Gebirgshorizont entsteht.
+* **Tages-Sterne in der Stratosphäre (> 7.000 m):**
+  * Über $7.000\text{ m}$ bricht die Himmelsluminanz so weit ein, dass die hellsten Sterne (0. und 1. Größenklasse: Sirius, Wega, Rigel, Canopus) sowie helle Planeten (Venus, Jupiter) am helllichten Tag mit bloßem Auge sichtbar werden ($V_{\text{star}} = \text{smoothstep}(7000, 8600, h) \cdot \text{smoothstep}(0,48, 0,94, r_y)$).
+  * Sphärisches 3D-Sternengitter mit atmosphärischem Funkeln (Szintillation) und feinen Beugungskreuzen (4-Point Diffraction Spikes).
+
+### 2. Chappuis-Ozonabsorption (550–650 nm) & Gegendämmerung
+* **Ozon-Extinktion im sichtbaren Licht:**
+  * In der Stratosphäre ($15\text{ km}$–$30\text{ km}$) absorbiert Ozon selektiv gelbe und orange Wellenlängen (Chappuis-Bande, Peak $\approx 600\text{ nm}$, $\mathbf{\sigma}_{\text{ozone}} = [0,065, 0,082, 0,005]\text{ km}^{-1}$).
+  * Bei flachem Sonnenstand ($L.y < 0,25$) wird das Sonnenlicht auf tangentialem Tangentenstrahl durch die Ozonschicht gefiltert:
+    $$\mathbf{T}_{\text{ozone}} = \exp\left(-\mathbf{\sigma}_{\text{ozone}} \cdot m_{\text{ozone}} \cdot 8,5\right)$$
+  * Unterdrückt gilbendes Streulicht und taucht den Dämmerungs-Zenit in reines Königsblau, Ultramarin und Purpur.
+* **Gegendämmerungsbogen (Belt of Venus):**
+  * Auf dem Gegenhorizont ($\mathbf{r}_{xz} \cdot \mathbf{L}_{xz} < -0,3$) leuchtet der Belt of Venus in spektral gefiltertem Pastellrosa ($RGB = [0,92, 0,44, 0,62] \times \mathbf{T}_{\text{ozone}}$), direkt über dem tiefblauen Erdschattenbogen.
+
+### 3. Eiskristall-Atmosphärenoptik (22°-Halo, Parhelia & Lichtsäulen)
+* **Physikalischer 22°-Halo mit chromatischer Dispersion:**
+  * Minimaler Ablenkungswinkel $\delta_{\text{min}} = 2 \arcsin(n \cdot \sin(30^\circ)) - 60^\circ$ an $60^\circ$-Prismenflächen hexagonaler Eissäulchen.
+  * Spektrale Farbaufspaltung des Brechungsindex $n_{\text{Eis}}$:
+    * Rot ($n = 1,307$): Scharfer innerer Rand bei $21,65^\circ$.
+    * Grün/Gelb ($n = 1,311$): Weißer Helligkeitspeak bei $22,05^\circ$.
+    * Blau/Violett ($n = 1,317$): Zartblauer Außenrand bei $22,55^\circ$.
+  * „Loch im Himmel“ (*Halo Dark Hole*): Signifikante Verdunklung des Himmels zwischen Vorwärtsstreuung und $21,4^\circ$-Innenrand, da alle Brechungsstrahlen in den $22^\circ$-Winkel gelenkt werden.
+* **Nebensonnen (Parhelia / Sun Dogs):**
+  * Entstehen durch horizontal schwebende hexagonale Eisplättchen genau auf Sonnenhöhe ($\Delta y \to 0$) im Azimutabstand von $\approx 22^\circ$.
+  * Mit steigender Sonne weitet sich der Winkel physikalisch auf: $\theta_{\text{dog}} = 22,0^\circ + 2,8^\circ \cdot (L.y / 0,45)^{1,8}$.
+  * Roter Innenrand zur Sonne hin, gleißend weißer Kern und nach außen ziehender Horizontalschweif entlang des Nebensonnenkreises (*Parhelic Circle*).
+* **Vertikale Lichtsäulen (Light Pillars) bei Dämmerung:**
+  * Planare Spiegelreflexion an den Basisflächen taumelnder Eisplättchen bei tiefstehender Sonne ($L.y < 0,26$).
+  * Exakt ausgerichtete vertikale Lichtsäule ($\Delta \phi_{\text{horiz}} < 1,8^\circ$), die bis zu $22^\circ$ senkrecht über der Sonne in den feurigen Morgenhimmel oder Abendhimmel aufsteigt.
+* **Diskrete Diamantstaub-Glints:**
+  * Zirkumsolare Diamantstaub-Kristalle blitzen in eisiger Höhenluft als funkelnde Mikro-Lichtpunkte auf.
+
 ---
 
 ## 🏔️ Nächste Schritte (Roadmap)
@@ -714,7 +763,7 @@ Physikalisch fundierte Eisfall-Strukturierung, spektrale Lichtabsorption und sup
   * Prozedurales Fließspannungs-Gitter (Strain-Tensor): An Geländestufen brechen echte 25 Meter tiefe Gletscherspalten (Crevasses) und turmhohe, instabile Serac-Eisnadeln auf.
   * Spektrale Lichtabsorption im Gletschereis: Rotes Licht wird $100\times$ stärker absorbiert als blaues – Spalten leuchten von innen heraus in magischem Kobalt- und Azurblau.
   * Supraglaziale Schmelzwassertümpel auf dem Moränengrund mit physikalischem Brechungsindex.
-* [ ] **Schritt 16 (1:1 Part XIV): Stratosphären-Optik & Eiskristall-Halos:**
+* [x] **Schritt 16 (1:1 Part XIV): Stratosphären-Optik & Eiskristall-Halos:**
   * Barometrische Dichteverteilung der Todeszone ($337\text{ hPa}$): Der Himmel dunkelt am Gipfel in tiefes Kosmos-Schwarzblau ab; Sterne werden tagsüber sichtbar.
   * Chappuis-Ozonabsorption (550–650 nm) für intensives Alpenglühen-Zenitlicht.
   * Eiskristall-Atmosphärenoptik: Physikalischer $22^\circ$-Halo um die Sonne, Nebensonnen (Parhelia) und Lichtsäulen bei Dämmerung.
