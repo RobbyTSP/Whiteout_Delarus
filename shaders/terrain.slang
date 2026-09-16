@@ -56,6 +56,9 @@ ConstantBuffer<PushConstants> pc;
 // Channel A: Geomorphological Horizon Ambient Occlusion (Sky View Factor)
 [[vk::binding(18, 0)]] Sampler2D texGeomorphology;
 
+// 19: 1024x1024 Float32 DEM Elevation Field (35-km Massif Cone-Tracing)
+[[vk::binding(19, 0)]] Sampler2D texElevationDEM;
+
 struct VertexInput {
     float3 position : POSITION;
     float3 normal   : NORMAL;
@@ -300,6 +303,77 @@ float sampleTriplanarDispMulti(Sampler2D tex, float2 planeUV, float distToCam) {
     return lerp(dCloseMid, dFar, farBlend);
 }
 
+// =========================================================================
+// Step 14 (1:1 Part XII): 35-km DEM Cone-Tracing Mountain Cast Shadows
+// =========================================================================
+// Hardware-accelerated Raymarching / Cone-Tracing through the 1024x1024 Float32 DEM
+// elevation field directly on the GPU.
+// Casts accurate 35-km mountain-on-mountain shadows (e.g. Everest, Lhotse, Nuptse
+// casting massive shadows across valleys like Western Cwm and Khumbu glacier)
+// with physically accurate soft penumbra based on the ~0.53° solar disc.
+float calculateDEMConeShadow(float3 worldPos, float3 N, float3 L, float rawNdotL) {
+    // 1. Fast early rejection: self-shadowed backfaces or sun below horizon
+    if (rawNdotL <= 0.001 || dot(N, L) <= -0.02 || L.y <= 0.001) {
+        return 0.0;
+    }
+
+    // 2. Spatial dither to prevent banding along penumbral boundaries
+    float dither = frac(sin(dot(worldPos.xz * 0.071, float2(12.9898, 78.233))) * 43758.5453);
+
+    // 3. Normal bias & Sun direction offset to eliminate surface acne on rugged terrain
+    float bias = max(3.5, (1.0 - saturate(dot(N, L))) * 12.0);
+    float3 rayStart = worldPos + N * bias + L * 8.0;
+
+    float minSunVis = 1.0;
+    float t = 10.0 + dither * 16.0;
+
+    // 4. Progressive quadratic cone-tracing march (48 steps spanning over 35 km)
+    [loop]
+    for (int i = 0; i < 48; ++i) {
+        float stepDist = 25.0 + 10.0 * float(i) + 0.65 * float(i * i);
+        t += stepDist;
+        float3 rayPos = rayStart + L * t;
+
+        // Peak elevation cutoff: Mount Everest is 8848.86m. Nothing on Earth can occlude above 8860m.
+        if (rayPos.y > 8860.0) {
+            break;
+        }
+
+        // DEM UV coordinates (Everest Massif dimensions: 34610m width x 34520m depth)
+        float2 demUV = float2(
+            rayPos.x / 34610.0 + 0.5,
+            rayPos.z / 34520.0 + 0.5
+        );
+
+        // DEM bounding box cutoff
+        if (demUV.x < 0.0 || demUV.x > 1.0 || demUV.y < 0.0 || demUV.y > 1.0) {
+            break;
+        }
+
+        // Sample elevation from 1024x1024 float32 DEM with hardware linear interpolation
+        float sampleElevation = texElevationDEM.SampleLevel(demUV, 0.0).r;
+        float heightDiff = rayPos.y - sampleElevation;
+
+        // Solar cone radius at distance t (solar angular diameter ~0.533 deg -> tan(0.2665 deg) ~ 0.00465)
+        float coneRadius = max(t * 0.00465, 4.5);
+
+        // Solar disc visibility: 
+        // heightDiff >= +coneRadius -> 1.0 (entire solar disc clear)
+        // heightDiff == 0.0         -> 0.5 (solar center touches mountain peak)
+        // heightDiff <= -coneRadius -> 0.0 (solar disc fully occluded by solid rock)
+        float stepVis = clamp(heightDiff / coneRadius * 0.5 + 0.5, 0.0, 1.0);
+        minSunVis = min(minSunVis, stepVis);
+
+        // Hard occlusion early exit
+        if (minSunVis <= 0.001) {
+            minSunVis = 0.0;
+            break;
+        }
+    }
+
+    // Apply smooth hermite curve for natural penumbra falloff
+    return smoothstep(0.0, 1.0, minSunVis);
+}
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
@@ -604,7 +678,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // Alpenglühen: High summits catch sunrise first while deep valleys are still in mountain shadow
     float dawnSummitBoost = clamp((input.worldPos.y - 4500.0) / 4200.0, 0.0, 1.0);
     float earthShadow = clamp(L.y * 14.0 + dawnSummitBoost * 0.70, 0.0, 1.0);
-    float3 directLight = NdotL * pc.sunColor.rgb * earthShadow * (0.35 + 0.65 * contactAO);
+
+    // Step 14 (1:1 Part XII): Monumentale Bergschatten & 35-km DEM Cone-Tracing
+    float demShadow = calculateDEMConeShadow(input.worldPos, N, L, rawNdotL);
+    float sunVisibility = demShadow * earthShadow;
+    float3 directLight = NdotL * pc.sunColor.rgb * sunVisibility * (0.35 + 0.65 * contactAO);
 
     // Stratospheric Sky Model: Realistisch dunkles Himmelslicht (keine künstliche flache Aufhellung!)
     float altRatio = clamp((input.worldPos.y - 5000.0) / 3848.0, 0.0, 1.0);
@@ -639,21 +717,21 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     // Diamond dust sparkle: microscopic ice crystal facets shimmering in direct sunlight
     float RdotV = clamp(dot(reflect(-L, finalNormal), V), 0.0, 1.0);
-    float sparkle = pow(RdotV, 128.0) * snowWeight * 0.40 * NdotL * earthShadow * (1.0 - rockBlendFactor);
-    float specular = pow(NdotH, specPower) * specIntensity * NdotL * earthShadow + sparkle;
+    float sparkle = pow(RdotV, 128.0) * snowWeight * 0.40 * NdotL * sunVisibility * (1.0 - rockBlendFactor);
+    float specular = (pow(NdotH, specPower) * specIntensity * NdotL + sparkle) * sunVisibility;
 
     // Fresnel sheen: subtle glancing rim on ice, essentially zero on snow, strictly zero on rock
     float VdotN = clamp(dot(V, finalNormal), 0.0, 1.0);
-    float fresnel = pow(1.0 - VdotN, 5.0) * (snowWeight * 0.04 + glacierWeight * 0.50) * (1.0 - rockBlendFactor);
+    float fresnel = pow(1.0 - VdotN, 5.0) * (snowWeight * 0.04 + glacierWeight * 0.50) * (1.0 - rockBlendFactor) * (demShadow * 0.7 + 0.3);
 
     // Subsurface Scattering (Translucency) für Schnee an Bergkämmen (kein kreidiger Gips-Look)
     float sssSnowWeight = snowWeight * pow(1.0 - rockBlendFactor, 1.8);
     float3 sssLightDir = normalize(L + finalNormal * 0.35);
     float sssForwardDot = clamp(dot(V, -sssLightDir), 0.0, 1.0);
     float ridgeTranslucency = geomMorph.b * 0.6 + 0.4;
-    float3 sssForwardGlow = pow(sssForwardDot, 3.5) * float3(0.82, 0.90, 1.05) * pc.sunColor.rgb * 0.30 * earthShadow * ridgeTranslucency;
+    float3 sssForwardGlow = pow(sssForwardDot, 3.5) * float3(0.82, 0.90, 1.05) * pc.sunColor.rgb * 0.30 * sunVisibility * ridgeTranslucency;
     float sssWrapTerm = smoothstep(-0.20, 0.80, rawNdotL);
-    float3 sssVolumetricTint = float3(0.74, 0.88, 1.02) * pc.sunColor.rgb * sssWrapTerm * 0.14 * earthShadow;
+    float3 sssVolumetricTint = float3(0.74, 0.88, 1.02) * pc.sunColor.rgb * sssWrapTerm * 0.14 * sunVisibility;
     float3 snowSSS = (sssForwardGlow + sssVolumetricTint) * sssSnowWeight * (ao * 0.65 + 0.35);
 
     float3 litColor = compositeAlbedo * (directLight + totalAmbient) + 

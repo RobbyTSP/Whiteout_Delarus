@@ -146,9 +146,9 @@ VulkanPipeline::VulkanPipeline(
     colorBlending.pAttachments = &colorBlendAttachment;
 
     if (!isSky) {
-        // 9. Descriptor Set Layout for 19 Texture Samplers (Satellite, Normal, Geomorphology, 4x PBR Sets)
-        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(19);
-        for (uint32_t i = 0; i < 19; i++) {
+        // 9. Descriptor Set Layout for 20 Texture Samplers (Satellite, Normal, Geomorphology, 4x PBR Sets, DEM Float32)
+        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(20);
+        for (uint32_t i = 0; i < 20; i++) {
             samplerBindings[i].binding = i;
             samplerBindings[i].descriptorCount = 1;
             samplerBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

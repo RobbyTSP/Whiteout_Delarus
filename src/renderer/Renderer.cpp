@@ -112,10 +112,10 @@ void Renderer::createCommandBuffers() {
 void Renderer::initTexturesAndDescriptors() {
     VkDevice device = m_context->getDevice();
 
-    // 1. Create Descriptor Pool for 19 combined image samplers
+    // 1. Create Descriptor Pool for 20 combined image samplers
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 19;
+    poolSize.descriptorCount = 20;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -139,7 +139,7 @@ void Renderer::initTexturesAndDescriptors() {
         throw std::runtime_error("Failed to allocate terrain texture descriptor set!");
     }
 
-    // 3. Load all 19 texture maps (ESRI satellite, Macro Normal, Geomorphology, and 4x ambientCG CC0 PBR sets)
+    // 3. Load all 20 texture maps (ESRI satellite, Macro Normal, Geomorphology, 4x ambientCG CC0 PBR sets, and DEM Float32)
     struct TexDef {
         std::string path;
         bool isSrgb;
@@ -179,9 +179,9 @@ void Renderer::initTexturesAndDescriptors() {
         {DATA_DIR "/processed/everest_geomorphology.png", false, true}
     };
 
-    m_textures.reserve(texDefs.size());
-    std::vector<VkDescriptorImageInfo> imageInfos(texDefs.size());
-    std::vector<VkWriteDescriptorSet> writes(texDefs.size());
+    m_textures.reserve(texDefs.size() + 1);
+    std::vector<VkDescriptorImageInfo> imageInfos(texDefs.size() + 1);
+    std::vector<VkWriteDescriptorSet> writes(texDefs.size() + 1);
 
     std::cout << "[Renderer] Loading 19 PBR, Geomorphology & Satellite textures into GPU VRAM..." << std::endl;
     for (size_t i = 0; i < texDefs.size(); i++) {
@@ -205,8 +205,43 @@ void Renderer::initTexturesAndDescriptors() {
         writes[i].pTexelBufferView = nullptr;
     }
 
+    // 19: 1024x1024 Float32 DEM Heightfield for GPU Cone-Tracing Shadows
+    size_t demIdx = texDefs.size();
+    std::string demPath = DATA_DIR "/processed/everest_dem_float32.bin";
+    std::ifstream demFile(demPath, std::ios::binary);
+    std::vector<float> demData(1024 * 1024, 0.0f);
+    if (demFile.is_open()) {
+        demFile.read(reinterpret_cast<char*>(demData.data()), demData.size() * sizeof(float));
+        demFile.close();
+        std::cout << "[Renderer] Loaded 1024x1024 Float32 DEM ("
+                  << (demData.size() * sizeof(float)) / 1048576
+                  << " MB) into GPU VRAM for Cone-Tracing Shadows." << std::endl;
+    } else {
+        std::cerr << "[Renderer] Warning: Could not open DEM file " << demPath << " for Cone-Tracing!" << std::endl;
+    }
+
+    m_textures.push_back(std::make_unique<rhi::VulkanTexture>(
+        *m_context,
+        demData.data(),
+        1024,
+        1024,
+        true // clampToEdge
+    ));
+    imageInfos[demIdx] = m_textures.back()->getDescriptorInfo();
+
+    writes[demIdx].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[demIdx].pNext = nullptr;
+    writes[demIdx].dstSet = m_descriptorSet;
+    writes[demIdx].dstBinding = static_cast<uint32_t>(demIdx);
+    writes[demIdx].dstArrayElement = 0;
+    writes[demIdx].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[demIdx].descriptorCount = 1;
+    writes[demIdx].pImageInfo = &imageInfos[demIdx];
+    writes[demIdx].pBufferInfo = nullptr;
+    writes[demIdx].pTexelBufferView = nullptr;
+
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-    std::cout << "[Renderer] Successfully bound all 19 PBR, Geomorphology & Satellite textures to Descriptor Set." << std::endl;
+    std::cout << "[Renderer] Successfully bound all 20 textures (including 35-km DEM) to Descriptor Set." << std::endl;
 }
 
 void Renderer::onResize() {

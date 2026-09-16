@@ -19,6 +19,13 @@ public:
     VulkanTexture(const VulkanContext& context,
                   uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 
+    // Constructor for raw float / single-channel R32_SFLOAT textures (e.g. DEM heightmaps)
+    VulkanTexture(const VulkanContext& context,
+                  const float* floatData,
+                  uint32_t width,
+                  uint32_t height,
+                  bool clampToEdge = true);
+
     ~VulkanTexture();
 
     VulkanTexture(const VulkanTexture&) = delete;
@@ -39,6 +46,7 @@ public:
 
 private:
     void createTextureImage(const void* pixelData, uint32_t width, uint32_t height, bool isSrgb);
+    void createFloatTextureImage(const float* floatData, uint32_t width, uint32_t height);
     void generateMipmaps(VkFormat imageFormat, int32_t texWidth, int32_t texHeight);
     void createImageView(bool isSrgb);
     void createTextureSampler(bool clampToEdge);
