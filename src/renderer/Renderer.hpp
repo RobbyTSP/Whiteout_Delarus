@@ -5,6 +5,7 @@
 #include "../rhi/VulkanContext.hpp"
 #include "../rhi/VulkanSwapchain.hpp"
 #include "../rhi/VulkanPipeline.hpp"
+#include "../rhi/VulkanComputePipeline.hpp"
 #include "../rhi/VulkanBuffer.hpp"
 #include "../rhi/VulkanTexture.hpp"
 #include <memory>
@@ -35,17 +36,52 @@ public:
 
     [[nodiscard]] const rhi::VulkanContext& getContext() const { return *m_context; }
 
+    // Step 17: Photometric HDR Telemetry
+    [[nodiscard]] float getAdaptedLuminance() const { return m_adaptedLuminance; }
+    [[nodiscard]] float getCurrentExposure() const { return m_currentExposure; }
+    [[nodiscard]] float getTargetLuminance() const { return m_targetLuminance; }
+
 private:
     void initSyncObjects();
     void createCommandBuffers();
     void generateTerrainMesh(uint32_t gridResolution = 256);
     void loadEverestDem(const std::string& manifestPath, const std::string& demBinPath, uint32_t sampleStep = 4);
 
+    void createHdrResources();
+    void cleanupHdrResources();
+    void initHdrAndPostprocessPipelines();
+    void updateHdrDescriptorSets();
+
     core::Window& m_window;
     std::unique_ptr<rhi::VulkanContext> m_context;
     std::unique_ptr<rhi::VulkanSwapchain> m_swapchain;
     std::unique_ptr<rhi::VulkanPipeline> m_pipeline;
     std::unique_ptr<rhi::VulkanPipeline> m_skyPipeline;
+
+    // Step 17: Photometric HDR Render Target & Eye Adaptation Pipelines
+    VkImage m_hdrImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_hdrImageMemory = VK_NULL_HANDLE;
+    VkImageView m_hdrImageView = VK_NULL_HANDLE;
+    VkSampler m_hdrSampler = VK_NULL_HANDLE;
+
+    std::unique_ptr<rhi::VulkanBuffer> m_histogramBuffer;
+    std::unique_ptr<rhi::VulkanBuffer> m_exposureBuffer;
+
+    std::unique_ptr<rhi::VulkanComputePipeline> m_histogramPipeline;
+    std::unique_ptr<rhi::VulkanComputePipeline> m_adaptPipeline;
+    std::unique_ptr<rhi::VulkanPipeline> m_postprocessPipeline;
+
+    VkDescriptorSetLayout m_histogramDescriptorLayout = VK_NULL_HANDLE;
+    VkDescriptorSet m_histogramDescriptorSet = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_adaptDescriptorLayout = VK_NULL_HANDLE;
+    VkDescriptorSet m_adaptDescriptorSet = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_postprocessDescriptorLayout = VK_NULL_HANDLE;
+    VkDescriptorSet m_postprocessDescriptorSet = VK_NULL_HANDLE;
+
+    float m_adaptedLuminance = 1.0f;
+    float m_currentExposure = 1.0f;
+    float m_targetLuminance = 1.0f;
+    float m_lastFrameTime = 0.0f;
 
     // Terrain geometry
     std::unique_ptr<rhi::VulkanBuffer> m_vertexBuffer;

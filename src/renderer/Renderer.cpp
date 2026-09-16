@@ -17,12 +17,16 @@ Renderer::Renderer(core::Window& window)
     m_context = std::make_unique<rhi::VulkanContext>(m_window);
     m_swapchain = std::make_unique<rhi::VulkanSwapchain>(*m_context, m_window);
 
+    // Step 17: Create 16-Bit Half-Float HDR Render Target (VK_FORMAT_R16G16B16A16_SFLOAT)
+    createHdrResources();
+
     std::string vertSpv = SHADER_DIR "/terrain_vert.spv";
     std::string fragSpv = SHADER_DIR "/terrain_frag.spv";
 
+    // Terrain Graphics Pipeline renders into HDR Color Attachment
     m_pipeline = std::make_unique<rhi::VulkanPipeline>(
         *m_context,
-        m_swapchain->getImageFormat(),
+        VK_FORMAT_R16G16B16A16_SFLOAT,
         m_swapchain->getDepthFormat(),
         vertSpv,
         fragSpv
@@ -31,9 +35,10 @@ Renderer::Renderer(core::Window& window)
     std::string skyVertSpv = SHADER_DIR "/sky_vert.spv";
     std::string skyFragSpv = SHADER_DIR "/sky_frag.spv";
 
+    // Sky Graphics Pipeline renders into HDR Color Attachment
     m_skyPipeline = std::make_unique<rhi::VulkanPipeline>(
         *m_context,
-        m_swapchain->getImageFormat(),
+        VK_FORMAT_R16G16B16A16_SFLOAT,
         m_swapchain->getDepthFormat(),
         skyVertSpv,
         skyFragSpv,
@@ -43,6 +48,7 @@ Renderer::Renderer(core::Window& window)
     createCommandBuffers();
     initSyncObjects();
     initTexturesAndDescriptors();
+    initHdrAndPostprocessPipelines();
 
     // Try loading Everest DEM data from Step 1; fallback to high-altitude procedural fractal terrain
     std::string demPath = DATA_DIR "/processed/everest_dem_float32.bin";
@@ -60,6 +66,27 @@ Renderer::Renderer(core::Window& window)
 Renderer::~Renderer() {
     VkDevice device = m_context->getDevice();
     vkDeviceWaitIdle(device);
+
+    m_histogramPipeline.reset();
+    m_adaptPipeline.reset();
+    m_postprocessPipeline.reset();
+    m_histogramBuffer.reset();
+    m_exposureBuffer.reset();
+
+    if (m_histogramDescriptorLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_histogramDescriptorLayout, nullptr);
+    }
+    if (m_adaptDescriptorLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_adaptDescriptorLayout, nullptr);
+    }
+    if (m_postprocessDescriptorLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_postprocessDescriptorLayout, nullptr);
+    }
+
+    if (m_hdrSampler != VK_NULL_HANDLE) {
+        vkDestroySampler(device, m_hdrSampler, nullptr);
+    }
+    cleanupHdrResources();
 
     if (m_descriptorPool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
@@ -109,25 +136,115 @@ void Renderer::createCommandBuffers() {
     }
 }
 
+void Renderer::createHdrResources() {
+    VkDevice device = m_context->getDevice();
+    VkExtent2D extent = m_swapchain->getExtent();
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = extent.width;
+    imageInfo.extent.height = extent.height;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+
+    if (vkCreateImage(device, &imageInfo, nullptr, &m_hdrImage) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create HDR color image!");
+    }
+
+    VkMemoryRequirements memReqs;
+    vkGetImageMemoryRequirements(device, m_hdrImage, &memReqs);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReqs.size;
+    allocInfo.memoryTypeIndex = m_context->findMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &m_hdrImageMemory) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate HDR color image memory!");
+    }
+
+    vkBindImageMemory(device, m_hdrImage, m_hdrImageMemory, 0);
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = m_hdrImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device, &viewInfo, nullptr, &m_hdrImageView) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create HDR color image view!");
+    }
+
+    if (m_hdrSampler == VK_NULL_HANDLE) {
+        VkSamplerCreateInfo samplerInfo{};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = VK_FILTER_LINEAR;
+        samplerInfo.minFilter = VK_FILTER_LINEAR;
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.mipLodBias = 0.0f;
+        samplerInfo.maxAnisotropy = 1.0f;
+        samplerInfo.compareOp = VK_COMPARE_OP_NEVER;
+        samplerInfo.minLod = 0.0f;
+        samplerInfo.maxLod = 1.0f;
+
+        if (vkCreateSampler(device, &samplerInfo, nullptr, &m_hdrSampler) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create HDR sampler!");
+        }
+    }
+}
+
+void Renderer::cleanupHdrResources() {
+    VkDevice device = m_context->getDevice();
+    if (m_hdrImageView != VK_NULL_HANDLE) {
+        vkDestroyImageView(device, m_hdrImageView, nullptr);
+        m_hdrImageView = VK_NULL_HANDLE;
+    }
+    if (m_hdrImage != VK_NULL_HANDLE) {
+        vkDestroyImage(device, m_hdrImage, nullptr);
+        m_hdrImage = VK_NULL_HANDLE;
+    }
+    if (m_hdrImageMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, m_hdrImageMemory, nullptr);
+        m_hdrImageMemory = VK_NULL_HANDLE;
+    }
+}
+
 void Renderer::initTexturesAndDescriptors() {
     VkDevice device = m_context->getDevice();
 
-    // 1. Create Descriptor Pool for 20 combined image samplers
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 20;
+    // 1. Create Descriptor Pool for textures (20 samplers) + postprocess/compute descriptors
+    std::vector<VkDescriptorPoolSize> poolSizes = {
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16}
+    };
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &poolSize;
-    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
+    poolInfo.maxSets = 8;
 
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create descriptor pool for textures!");
     }
 
-    // 2. Allocate Descriptor Set
+    // 2. Allocate Descriptor Set for Terrain Textures
     VkDescriptorSetLayout layout = m_pipeline->getDescriptorSetLayout();
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -244,189 +361,453 @@ void Renderer::initTexturesAndDescriptors() {
     std::cout << "[Renderer] Successfully bound all 20 textures (including 35-km DEM) to Descriptor Set." << std::endl;
 }
 
+void Renderer::initHdrAndPostprocessPipelines() {
+    VkDevice device = m_context->getDevice();
+
+    // 1. Create Histogram storage buffer (64 uints = 256 bytes)
+    m_histogramBuffer = std::make_unique<rhi::VulkanBuffer>(
+        *m_context,
+        64 * sizeof(uint32_t),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+
+    // 2. Create Exposure storage buffer (4 floats = 16 bytes: adaptedLum, exposure, targetLum, pad)
+    m_exposureBuffer = std::make_unique<rhi::VulkanBuffer>(
+        *m_context,
+        4 * sizeof(float),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    // Initial exposure values
+    float initExp[4] = {1.0f, 1.0f, 1.0f, 0.0f};
+    m_exposureBuffer->upload(initExp, sizeof(initExp));
+
+    // 3. Create Histogram Descriptor Set Layout:
+    // Binding 0: hdrTexture (COMBINED_IMAGE_SAMPLER, COMPUTE)
+    // Binding 1: histogramBuffer (STORAGE_BUFFER, COMPUTE)
+    std::vector<VkDescriptorSetLayoutBinding> histBindings(2);
+    histBindings[0].binding = 0;
+    histBindings[0].descriptorCount = 1;
+    histBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    histBindings[0].pImmutableSamplers = nullptr;
+    histBindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    histBindings[1].binding = 1;
+    histBindings[1].descriptorCount = 1;
+    histBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    histBindings[1].pImmutableSamplers = nullptr;
+    histBindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo histLayoutInfo{};
+    histLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    histLayoutInfo.bindingCount = static_cast<uint32_t>(histBindings.size());
+    histLayoutInfo.pBindings = histBindings.data();
+    if (vkCreateDescriptorSetLayout(device, &histLayoutInfo, nullptr, &m_histogramDescriptorLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create histogram descriptor set layout!");
+    }
+
+    // 4. Create Adapt Exposure Descriptor Set Layout:
+    // Binding 0: histogramBuffer (STORAGE_BUFFER, COMPUTE)
+    // Binding 1: exposureBuffer (STORAGE_BUFFER, COMPUTE)
+    std::vector<VkDescriptorSetLayoutBinding> adaptBindings(2);
+    adaptBindings[0].binding = 0;
+    adaptBindings[0].descriptorCount = 1;
+    adaptBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    adaptBindings[0].pImmutableSamplers = nullptr;
+    adaptBindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    adaptBindings[1].binding = 1;
+    adaptBindings[1].descriptorCount = 1;
+    adaptBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    adaptBindings[1].pImmutableSamplers = nullptr;
+    adaptBindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo adaptLayoutInfo{};
+    adaptLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    adaptLayoutInfo.bindingCount = static_cast<uint32_t>(adaptBindings.size());
+    adaptLayoutInfo.pBindings = adaptBindings.data();
+    if (vkCreateDescriptorSetLayout(device, &adaptLayoutInfo, nullptr, &m_adaptDescriptorLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create adapt exposure descriptor set layout!");
+    }
+
+    // 5. Create Post-Process Descriptor Set Layout:
+    // Binding 0: hdrTexture (COMBINED_IMAGE_SAMPLER, FRAGMENT)
+    // Binding 1: exposureBuffer (STORAGE_BUFFER, FRAGMENT)
+    std::vector<VkDescriptorSetLayoutBinding> postBindings(2);
+    postBindings[0].binding = 0;
+    postBindings[0].descriptorCount = 1;
+    postBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    postBindings[0].pImmutableSamplers = nullptr;
+    postBindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    postBindings[1].binding = 1;
+    postBindings[1].descriptorCount = 1;
+    postBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    postBindings[1].pImmutableSamplers = nullptr;
+    postBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo postLayoutInfo{};
+    postLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    postLayoutInfo.bindingCount = static_cast<uint32_t>(postBindings.size());
+    postLayoutInfo.pBindings = postBindings.data();
+    if (vkCreateDescriptorSetLayout(device, &postLayoutInfo, nullptr, &m_postprocessDescriptorLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create post-process descriptor set layout!");
+    }
+
+    // Allocate descriptor sets
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = m_descriptorPool;
+    allocInfo.descriptorSetCount = 1;
+
+    allocInfo.pSetLayouts = &m_histogramDescriptorLayout;
+    if (vkAllocateDescriptorSets(device, &allocInfo, &m_histogramDescriptorSet) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate histogram descriptor set!");
+    }
+
+    allocInfo.pSetLayouts = &m_adaptDescriptorLayout;
+    if (vkAllocateDescriptorSets(device, &allocInfo, &m_adaptDescriptorSet) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate adapt descriptor set!");
+    }
+
+    allocInfo.pSetLayouts = &m_postprocessDescriptorLayout;
+    if (vkAllocateDescriptorSets(device, &allocInfo, &m_postprocessDescriptorSet) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate post-process descriptor set!");
+    }
+
+    // Bind resources to descriptor sets
+    updateHdrDescriptorSets();
+
+    // Create Compute Pipelines
+    // Histogram push constants: width, height, minLogLum, maxLogLum (16 bytes)
+    m_histogramPipeline = std::make_unique<rhi::VulkanComputePipeline>(
+        *m_context,
+        SHADER_DIR "/histogram_comp.spv",
+        m_histogramDescriptorLayout,
+        sizeof(uint32_t) * 2 + sizeof(float) * 2
+    );
+
+    // Adapt push constants: totalPixels, deltaTime, minLogLum, maxLogLum, adaptSpeedUp, adaptSpeedDown, exposureKey (28 bytes)
+    m_adaptPipeline = std::make_unique<rhi::VulkanComputePipeline>(
+        *m_context,
+        SHADER_DIR "/adapt_exposure_comp.spv",
+        m_adaptDescriptorLayout,
+        sizeof(uint32_t) + sizeof(float) * 6
+    );
+
+    // Create Post-Process Graphics Pipeline
+    std::string postVert = SHADER_DIR "/postprocess_vert.spv";
+    std::string postFrag = SHADER_DIR "/postprocess_frag.spv";
+
+    m_postprocessPipeline = std::make_unique<rhi::VulkanPipeline>(
+        *m_context,
+        m_swapchain->getImageFormat(),
+        VK_FORMAT_UNDEFINED,
+        postVert,
+        postFrag,
+        m_postprocessDescriptorLayout,
+        sizeof(rhi::PostProcessPushConstants),
+        true // isFullscreen
+    );
+
+    std::cout << "[Renderer] Photometric HDR & Human Eye Adaptation pipelines initialized." << std::endl;
+}
+
+void Renderer::updateHdrDescriptorSets() {
+    VkDevice device = m_context->getDevice();
+
+    VkDescriptorImageInfo hdrImageInfo{};
+    hdrImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    hdrImageInfo.imageView = m_hdrImageView;
+    hdrImageInfo.sampler = m_hdrSampler;
+
+    VkDescriptorBufferInfo histBufferInfo{};
+    histBufferInfo.buffer = m_histogramBuffer->getHandle();
+    histBufferInfo.offset = 0;
+    histBufferInfo.range = 64 * sizeof(uint32_t);
+
+    VkDescriptorBufferInfo expBufferInfo{};
+    expBufferInfo.buffer = m_exposureBuffer->getHandle();
+    expBufferInfo.offset = 0;
+    expBufferInfo.range = 4 * sizeof(float);
+
+    std::vector<VkWriteDescriptorSet> writes;
+
+    // 1. Histogram set writes
+    VkWriteDescriptorSet histImageWrite{};
+    histImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    histImageWrite.dstSet = m_histogramDescriptorSet;
+    histImageWrite.dstBinding = 0;
+    histImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    histImageWrite.descriptorCount = 1;
+    histImageWrite.pImageInfo = &hdrImageInfo;
+    writes.push_back(histImageWrite);
+
+    VkWriteDescriptorSet histBufWrite{};
+    histBufWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    histBufWrite.dstSet = m_histogramDescriptorSet;
+    histBufWrite.dstBinding = 1;
+    histBufWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    histBufWrite.descriptorCount = 1;
+    histBufWrite.pBufferInfo = &histBufferInfo;
+    writes.push_back(histBufWrite);
+
+    // 2. Adapt set writes
+    VkWriteDescriptorSet adaptHistWrite{};
+    adaptHistWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    adaptHistWrite.dstSet = m_adaptDescriptorSet;
+    adaptHistWrite.dstBinding = 0;
+    adaptHistWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    adaptHistWrite.descriptorCount = 1;
+    adaptHistWrite.pBufferInfo = &histBufferInfo;
+    writes.push_back(adaptHistWrite);
+
+    VkWriteDescriptorSet adaptExpWrite{};
+    adaptExpWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    adaptExpWrite.dstSet = m_adaptDescriptorSet;
+    adaptExpWrite.dstBinding = 1;
+    adaptExpWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    adaptExpWrite.descriptorCount = 1;
+    adaptExpWrite.pBufferInfo = &expBufferInfo;
+    writes.push_back(adaptExpWrite);
+
+    // 3. Post-process set writes
+    VkWriteDescriptorSet postImageWrite{};
+    postImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    postImageWrite.dstSet = m_postprocessDescriptorSet;
+    postImageWrite.dstBinding = 0;
+    postImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    postImageWrite.descriptorCount = 1;
+    postImageWrite.pImageInfo = &hdrImageInfo;
+    writes.push_back(postImageWrite);
+
+    VkWriteDescriptorSet postExpWrite{};
+    postExpWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    postExpWrite.dstSet = m_postprocessDescriptorSet;
+    postExpWrite.dstBinding = 1;
+    postExpWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    postExpWrite.descriptorCount = 1;
+    postExpWrite.pBufferInfo = &expBufferInfo;
+    writes.push_back(postExpWrite);
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+}
+
 void Renderer::onResize() {
     m_swapchain->recreate(m_window);
+    cleanupHdrResources();
+    createHdrResources();
+    updateHdrDescriptorSets();
+}
+
+void Renderer::generateTerrainMesh(uint32_t gridResolution) {
+    std::cout << "[Renderer] Generating fallback procedural fractal mountain mesh ("
+              << gridResolution << "x" << gridResolution << ")..." << std::endl;
+
+    std::vector<rhi::Vertex> vertices;
+    std::vector<uint32_t> indices;
+
+    float meshWidth = 24000.0f;
+    float meshHeight = 24000.0f;
+    float dx = meshWidth / (gridResolution - 1);
+    float dz = meshHeight / (gridResolution - 1);
+
+    vertices.reserve(gridResolution * gridResolution);
+
+    for (uint32_t z = 0; z < gridResolution; z++) {
+        for (uint32_t x = 0; x < gridResolution; x++) {
+            float worldX = (static_cast<float>(x) / (gridResolution - 1) - 0.5f) * meshWidth;
+            float worldZ = (static_cast<float>(z) / (gridResolution - 1) - 0.5f) * meshHeight;
+
+            float r = std::sqrt(worldX * worldX + worldZ * worldZ) / (meshWidth * 0.5f);
+            float dome = std::max(0.0f, 1.0f - r * r);
+            float fbm = std::sin(worldX * 0.0012f) * std::cos(worldZ * 0.0012f) * 850.0f +
+                        std::sin(worldX * 0.0028f + 1.2f) * std::cos(worldZ * 0.0028f) * 420.0f +
+                        std::sin(worldX * 0.0065f) * std::cos(worldZ * 0.0065f + 0.8f) * 180.0f;
+
+            float worldY = 3800.0f + dome * (4200.0f + fbm);
+
+            rhi::Vertex v{};
+            v.position = glm::vec3(worldX, worldY, worldZ);
+            v.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            v.uv = glm::vec2(static_cast<float>(x) / (gridResolution - 1),
+                             static_cast<float>(z) / (gridResolution - 1));
+            vertices.push_back(v);
+        }
+    }
+
+    // Indices
+    for (uint32_t z = 0; z < gridResolution - 1; z++) {
+        for (uint32_t x = 0; x < gridResolution - 1; x++) {
+            uint32_t topLeft = z * gridResolution + x;
+            uint32_t topRight = topLeft + 1;
+            uint32_t bottomLeft = (z + 1) * gridResolution + x;
+            uint32_t bottomRight = bottomLeft + 1;
+
+            indices.push_back(topLeft);
+            indices.push_back(bottomLeft);
+            indices.push_back(topRight);
+
+            indices.push_back(topRight);
+            indices.push_back(bottomLeft);
+            indices.push_back(bottomRight);
+        }
+    }
+
+    // Compute normals
+    for (size_t i = 0; i < indices.size(); i += 3) {
+        uint32_t i0 = indices[i];
+        uint32_t i1 = indices[i + 1];
+        uint32_t i2 = indices[i + 2];
+
+        glm::vec3 v0 = vertices[i0].position;
+        glm::vec3 v1 = vertices[i1].position;
+        glm::vec3 v2 = vertices[i2].position;
+
+        glm::vec3 edge1 = v1 - v0;
+        glm::vec3 edge2 = v2 - v0;
+        glm::vec3 normal = glm::normalize(glm::cross(edge1, edge2));
+
+        vertices[i0].normal += normal;
+        vertices[i1].normal += normal;
+        vertices[i2].normal += normal;
+    }
+
+    for (auto& v : vertices) {
+        v.normal = glm::normalize(v.normal);
+    }
+
+    m_indexCount = static_cast<uint32_t>(indices.size());
+
+    m_vertexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
+        *m_context,
+        vertices.data(),
+        vertices.size() * sizeof(rhi::Vertex),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+    );
+
+    m_indexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
+        *m_context,
+        indices.data(),
+        indices.size() * sizeof(uint32_t),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+    );
+
+    std::cout << "[Renderer] Generated " << vertices.size() << " vertices, "
+              << indices.size() / 3 << " triangles for Everest massif." << std::endl;
 }
 
 void Renderer::loadEverestDem(const std::string& manifestPath, const std::string& demBinPath, uint32_t sampleStep) {
-    const uint32_t origW = 1024;
-    const uint32_t origH = 1024;
+    std::cout << "[Renderer] Loading Everest DEM from " << demBinPath << "..." << std::endl;
 
     std::ifstream demFile(demBinPath, std::ios::binary);
     if (!demFile.is_open()) {
-        std::cerr << "Warning: Could not open " << demBinPath << ", generating procedural terrain." << std::endl;
+        std::cerr << "[Renderer] Failed to open DEM binary file: " << demBinPath << ". Falling back to procedural terrain." << std::endl;
         generateTerrainMesh(256);
         return;
     }
 
-    std::vector<float> rawElevation(origW * origH);
-    demFile.read(reinterpret_cast<char*>(rawElevation.data()), rawElevation.size() * sizeof(float));
+    std::vector<float> demData(1024 * 1024);
+    demFile.read(reinterpret_cast<char*>(demData.data()), demData.size() * sizeof(float));
     demFile.close();
 
-    uint32_t gridW = origW / sampleStep;
-    uint32_t gridH = origH / sampleStep;
-    uint32_t vertexCount = gridW * gridH;
+    uint32_t demWidth = 1024;
+    uint32_t demHeight = 1024;
 
-    // Himalayan Everest dimensions: ~34.6 km width x 34.5 km depth
-    float worldWidth = 34610.0f;
-    float worldDepth = 34520.0f;
+    float meshWidth = 34560.0f;
+    float meshDepth = 34560.0f;
 
-    std::vector<rhi::Vertex> vertices(vertexCount);
-    m_minElevation = 10000.0f;
-    m_maxElevation = -10000.0f;
+    uint32_t gridW = (demWidth - 1) / sampleStep + 1;
+    uint32_t gridH = (demHeight - 1) / sampleStep + 1;
 
-    for (uint32_t y = 0; y < gridH; y++) {
-        for (uint32_t x = 0; x < gridW; x++) {
-            uint32_t origX = x * sampleStep;
-            uint32_t origY = y * sampleStep;
-            float elev = rawElevation[origY * origW + origX];
+    std::vector<rhi::Vertex> vertices;
+    vertices.reserve(gridW * gridH);
 
-            if (elev < m_minElevation) m_minElevation = elev;
-            if (elev > m_maxElevation) m_maxElevation = elev;
+    float minZ = 10000.0f, maxZ = -10000.0f;
 
-            float u = static_cast<float>(x) / static_cast<float>(gridW - 1);
-            float v = static_cast<float>(y) / static_cast<float>(gridH - 1);
+    for (uint32_t gz = 0; gz < gridH; gz++) {
+        uint32_t demY = gz * sampleStep;
+        for (uint32_t gx = 0; gx < gridW; gx++) {
+            uint32_t demX = gx * sampleStep;
 
-            float posX = (u - 0.5f) * worldWidth;
-            float posZ = (v - 0.5f) * worldDepth;
-            float posY = elev;
+            float elevation = demData[demY * demWidth + demX];
+            minZ = std::min(minZ, elevation);
+            maxZ = std::max(maxZ, elevation);
 
-            uint32_t idx = y * gridW + x;
-            vertices[idx].position = glm::vec3(posX, posY, posZ);
-            vertices[idx].uv = glm::vec2(u, v);
-            vertices[idx].normal = glm::vec3(0.0f, 1.0f, 0.0f); // Default up
+            float worldX = (static_cast<float>(demX) / (demWidth - 1) - 0.5f) * meshWidth;
+            float worldZ = (static_cast<float>(demY) / (demHeight - 1) - 0.5f) * meshDepth;
+            float worldY = elevation;
+
+            rhi::Vertex v{};
+            v.position = glm::vec3(worldX, worldY, worldZ);
+            v.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            v.uv = glm::vec2(static_cast<float>(demX) / (demWidth - 1),
+                             static_cast<float>(demY) / (demHeight - 1));
+            vertices.push_back(v);
         }
     }
 
-    // Compute accurate vertex normals from surrounding neighbors
-    for (uint32_t y = 1; y < gridH - 1; y++) {
-        for (uint32_t x = 1; x < gridW - 1; x++) {
-            uint32_t idx = y * gridW + x;
-            float hL = vertices[idx - 1].position.y;
-            float hR = vertices[idx + 1].position.y;
-            float hD = vertices[(y - 1) * gridW + x].position.y;
-            float hU = vertices[(y + 1) * gridW + x].position.y;
-
-            float dx = (worldWidth / static_cast<float>(gridW - 1)) * 2.0f;
-            float dz = (worldDepth / static_cast<float>(gridH - 1)) * 2.0f;
-
-            glm::vec3 normal = glm::normalize(glm::vec3((hL - hR) * dz, dx * dz, (hD - hU) * dx));
-            vertices[idx].normal = normal;
-        }
-    }
-
-    // Build index buffer (Triangle list)
-    std::vector<uint32_t> indices;
-    indices.reserve((gridW - 1) * (gridH - 1) * 6);
-
-    for (uint32_t y = 0; y < gridH - 1; y++) {
-        for (uint32_t x = 0; x < gridW - 1; x++) {
-            uint32_t i0 = y * gridW + x;
-            uint32_t i1 = i0 + 1;
-            uint32_t i2 = (y + 1) * gridW + x;
-            uint32_t i3 = i2 + 1;
-
-            indices.push_back(i0);
-            indices.push_back(i2);
-            indices.push_back(i1);
-
-            indices.push_back(i1);
-            indices.push_back(i2);
-            indices.push_back(i3);
-        }
-    }
-
-    m_indexCount = static_cast<uint32_t>(indices.size());
-
-    // Upload to device-local GPU buffers
-    VkDeviceSize vertexBufferSize = sizeof(rhi::Vertex) * vertices.size();
-    m_vertexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
-        *m_context,
-        vertices.data(),
-        vertexBufferSize,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
-    );
-
-    VkDeviceSize indexBufferSize = sizeof(uint32_t) * indices.size();
-    m_indexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
-        *m_context,
-        indices.data(),
-        indexBufferSize,
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-    );
-
+    m_minElevation = minZ;
+    m_maxElevation = maxZ;
     std::cout << "[Renderer] Loaded Mount Everest 1:1 DEM into GPU ("
-              << vertices.size() << " vertices, " << m_indexCount / 3 << " triangles)." << std::endl;
-    std::cout << "[Renderer] Elevation: " << m_minElevation << " m to " << m_maxElevation << " m." << std::endl;
-}
-
-void Renderer::generateTerrainMesh(uint32_t gridResolution) {
-    uint32_t gridW = gridResolution;
-    uint32_t gridH = gridResolution;
-    uint32_t vertexCount = gridW * gridH;
-
-    float worldWidth = 35000.0f;
-    float worldDepth = 35000.0f;
-
-    std::vector<rhi::Vertex> vertices(vertexCount);
-    m_minElevation = 4000.0f;
-    m_maxElevation = 8848.0f;
-
-    for (uint32_t y = 0; y < gridH; y++) {
-        for (uint32_t x = 0; x < gridW; x++) {
-            float u = static_cast<float>(x) / static_cast<float>(gridW - 1);
-            float v = static_cast<float>(y) / static_cast<float>(gridH - 1);
-
-            float posX = (u - 0.5f) * worldWidth;
-            float posZ = (v - 0.5f) * worldDepth;
-
-            // Procedural peak profile centered on summit
-            float distFromCenter = std::sqrt(posX * posX + posZ * posZ) / 18000.0f;
-            float peak = std::exp(-distFromCenter * distFromCenter * 3.0f);
-            float noise = std::sin(posX * 0.0005f) * std::cos(posZ * 0.0005f) * 600.0f;
-            float posY = m_minElevation + peak * (m_maxElevation - m_minElevation) + noise;
-
-            uint32_t idx = y * gridW + x;
-            vertices[idx].position = glm::vec3(posX, posY, posZ);
-            vertices[idx].uv = glm::vec2(u, v);
-            vertices[idx].normal = glm::vec3(0.0f, 1.0f, 0.0f);
-        }
-    }
+              << vertices.size() << " vertices, " << (gridW - 1) * (gridH - 1) * 2 << " triangles)." << std::endl;
+    std::cout << "[Renderer] Elevation: " << minZ << " m to " << maxZ << " m." << std::endl;
 
     std::vector<uint32_t> indices;
     indices.reserve((gridW - 1) * (gridH - 1) * 6);
-    for (uint32_t y = 0; y < gridH - 1; y++) {
-        for (uint32_t x = 0; x < gridW - 1; x++) {
-            uint32_t i0 = y * gridW + x;
-            uint32_t i1 = i0 + 1;
-            uint32_t i2 = (y + 1) * gridW + x;
-            uint32_t i3 = i2 + 1;
 
-            indices.push_back(i0);
-            indices.push_back(i2);
-            indices.push_back(i1);
+    for (uint32_t gz = 0; gz < gridH - 1; gz++) {
+        for (uint32_t gx = 0; gx < gridW - 1; gx++) {
+            uint32_t topLeft = gz * gridW + gx;
+            uint32_t topRight = topLeft + 1;
+            uint32_t bottomLeft = (gz + 1) * gridW + gx;
+            uint32_t bottomRight = bottomLeft + 1;
 
-            indices.push_back(i1);
-            indices.push_back(i2);
-            indices.push_back(i3);
+            indices.push_back(topLeft);
+            indices.push_back(bottomLeft);
+            indices.push_back(topRight);
+
+            indices.push_back(topRight);
+            indices.push_back(bottomLeft);
+            indices.push_back(bottomRight);
         }
+    }
+
+    // Compute surface normals
+    for (size_t i = 0; i < indices.size(); i += 3) {
+        uint32_t i0 = indices[i];
+        uint32_t i1 = indices[i + 1];
+        uint32_t i2 = indices[i + 2];
+
+        glm::vec3 v0 = vertices[i0].position;
+        glm::vec3 v1 = vertices[i1].position;
+        glm::vec3 v2 = vertices[i2].position;
+
+        glm::vec3 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+        vertices[i0].normal += normal;
+        vertices[i1].normal += normal;
+        vertices[i2].normal += normal;
+    }
+
+    for (auto& v : vertices) {
+        v.normal = glm::normalize(v.normal);
     }
 
     m_indexCount = static_cast<uint32_t>(indices.size());
 
-    VkDeviceSize vertexBufferSize = sizeof(rhi::Vertex) * vertices.size();
     m_vertexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
         *m_context,
         vertices.data(),
-        vertexBufferSize,
+        vertices.size() * sizeof(rhi::Vertex),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
     );
 
-    VkDeviceSize indexBufferSize = sizeof(uint32_t) * indices.size();
     m_indexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
         *m_context,
         indices.data(),
-        indexBufferSize,
+        indices.size() * sizeof(uint32_t),
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT
     );
 }
@@ -445,16 +826,24 @@ void Renderer::renderFrame(
 
     vkWaitForFences(device, 1, &m_inFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX);
 
-    uint32_t imageIndex = 0;
-    VkResult acquireRes = m_swapchain->acquireNextImage(m_imageAvailableSemaphores[m_currentFrame], &imageIndex);
+    uint32_t imageIndex;
+    VkResult result = vkAcquireNextImageKHR(
+        device,
+        m_swapchain->getHandle(),
+        UINT64_MAX,
+        m_imageAvailableSemaphores[m_currentFrame],
+        VK_NULL_HANDLE,
+        &imageIndex
+    );
 
-    if (acquireRes == VK_ERROR_OUT_OF_DATE_KHR) {
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         onResize();
         return;
-    } else if (acquireRes != VK_SUCCESS && acquireRes != VK_SUBOPTIMAL_KHR) {
+    } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         throw std::runtime_error("Failed to acquire swapchain image!");
     }
 
+    m_lastPresentedImage = imageIndex;
     vkResetFences(device, 1, &m_inFlightFences[m_currentFrame]);
 
     VkCommandBuffer cmd = m_commandBuffers[m_currentFrame];
@@ -462,23 +851,64 @@ void Renderer::renderFrame(
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    vkBeginCommandBuffer(cmd, &beginInfo);
 
-    // 1. Transition swapchain color image to COLOR_ATTACHMENT_OPTIMAL
-    VkImageMemoryBarrier colorBarrier{};
-    colorBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    colorBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    colorBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    colorBarrier.image = m_swapchain->getImage(imageIndex);
-    colorBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    colorBarrier.subresourceRange.baseMipLevel = 0;
-    colorBarrier.subresourceRange.levelCount = 1;
-    colorBarrier.subresourceRange.baseArrayLayer = 0;
-    colorBarrier.subresourceRange.layerCount = 1;
-    colorBarrier.srcAccessMask = 0;
-    colorBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to begin recording command buffer!");
+    }
+
+    // Step 17: Read back adapted exposure telemetry from GPU storage buffer
+    float deltaTime = (totalTime > m_lastFrameTime && m_lastFrameTime > 0.0f) ? (totalTime - m_lastFrameTime) : 0.016f;
+    m_lastFrameTime = totalTime;
+
+    void* mappedMem = nullptr;
+    if (m_exposureBuffer && vkMapMemory(device, m_exposureBuffer->getMemory(), 0, 4 * sizeof(float), 0, &mappedMem) == VK_SUCCESS) {
+        float* expData = static_cast<float*>(mappedMem);
+        if (expData[0] > 0.0001f && !std::isnan(expData[0])) {
+            m_adaptedLuminance = expData[0];
+            m_currentExposure = expData[1];
+            m_targetLuminance = expData[2];
+        }
+        vkUnmapMemory(device, m_exposureBuffer->getMemory());
+    }
+
+    // Project Sun onto screen coordinates for Hexagonal Sunstars & Anamorphic Glare
+    glm::mat4 view = camera.getViewMatrix();
+    glm::mat4 proj = camera.getProjectionMatrix();
+    glm::vec3 sunNorm = glm::normalize(sunDir);
+    glm::vec3 sunWorld = camera.getPosition() + sunNorm * 10000.0f;
+    glm::vec4 sunClip = proj * (view * glm::vec4(sunWorld, 1.0f));
+
+    glm::vec4 sunScreen(0.0f);
+    if (sunClip.w > 0.0f) {
+        glm::vec3 sunNDC = glm::vec3(sunClip) / sunClip.w;
+        if (sunNDC.z >= 0.0f) {
+            sunScreen.x = sunNDC.x * 0.5f + 0.5f;
+            sunScreen.y = sunNDC.y * 0.5f + 0.5f;
+            sunScreen.z = 1.0f; // in front of camera
+            float sunElev = std::max(0.0f, sunNorm.y);
+            sunScreen.w = glm::mix(0.85f, 1.4f, sunElev);
+        }
+    }
+
+    VkExtent2D extent = m_swapchain->getExtent();
+
+    // =========================================================================
+    // 1. Transition HDR Render Target to COLOR_ATTACHMENT_OPTIMAL
+    // =========================================================================
+    VkImageMemoryBarrier hdrAttachBarrier{};
+    hdrAttachBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    hdrAttachBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    hdrAttachBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    hdrAttachBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    hdrAttachBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    hdrAttachBarrier.image = m_hdrImage;
+    hdrAttachBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    hdrAttachBarrier.subresourceRange.baseMipLevel = 0;
+    hdrAttachBarrier.subresourceRange.levelCount = 1;
+    hdrAttachBarrier.subresourceRange.baseArrayLayer = 0;
+    hdrAttachBarrier.subresourceRange.layerCount = 1;
+    hdrAttachBarrier.srcAccessMask = 0;
+    hdrAttachBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
     vkCmdPipelineBarrier(
         cmd,
@@ -487,28 +917,27 @@ void Renderer::renderFrame(
         0,
         0, nullptr,
         0, nullptr,
-        1, &colorBarrier
+        1, &hdrAttachBarrier
     );
 
-    // 2. Set up Dynamic Rendering
-    VkRenderingAttachmentInfo colorAttachment{};
-    colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    colorAttachment.imageView = m_swapchain->getImageView(imageIndex);
-    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    // =========================================================================
+    // 2. Pass 1: Render Scene (Sky & Terrain) into 16-Bit Half-Float HDR Buffer
+    // =========================================================================
+    VkRenderingAttachmentInfo hdrColorAttachment{};
+    hdrColorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    hdrColorAttachment.imageView = m_hdrImageView;
+    hdrColorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    hdrColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    hdrColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-    // Dynamic Himalayan Stratospheric Sky: Deep indigo/navy above 7000m, tinted by sun and blizzard
     float camAltRatio = std::clamp((camera.getPosition().y - 4500.0f) / 4348.0f, 0.0f, 1.0f);
     glm::vec3 valleySky(0.35f, 0.52f, 0.72f);
-    glm::vec3 stratosphericSky(0.06f, 0.09f, 0.22f);
-    glm::vec3 clearSky = glm::mix(valleySky, stratosphericSky, camAltRatio * 0.85f);
-    // Tint sky with sun illumination spectrum (e.g. Alpenglühen rose-gold/amber or moonlight)
-    clearSky = glm::mix(clearSky, clearSky * glm::normalize(sunColor + glm::vec3(0.3f)) * 1.1f, 0.40f);
+    glm::vec3 stratosphericSky(0.0035f, 0.0065f, 0.024f);
+    glm::vec3 clearSky = glm::mix(valleySky, stratosphericSky, camAltRatio * 0.90f);
     if (blizzardFactor > 0.01f) {
         clearSky = glm::mix(clearSky, glm::vec3(0.82f, 0.86f, 0.90f), blizzardFactor * 0.88f);
     }
-    colorAttachment.clearValue.color = {{clearSky.r, clearSky.g, clearSky.b, 1.0f}};
+    hdrColorAttachment.clearValue.color = {{clearSky.r, clearSky.g, clearSky.b, 1.0f}};
 
     VkRenderingAttachmentInfo depthAttachment{};
     depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -518,46 +947,45 @@ void Renderer::renderFrame(
     depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depthAttachment.clearValue.depthStencil = {1.0f, 0};
 
-    VkRenderingInfo renderingInfo{};
-    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    renderingInfo.renderArea.offset = {0, 0};
-    renderingInfo.renderArea.extent = m_swapchain->getExtent();
-    renderingInfo.layerCount = 1;
-    renderingInfo.colorAttachmentCount = 1;
-    renderingInfo.pColorAttachments = &colorAttachment;
-    renderingInfo.pDepthAttachment = &depthAttachment;
+    VkRenderingInfo hdrRenderingInfo{};
+    hdrRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    hdrRenderingInfo.renderArea.offset = {0, 0};
+    hdrRenderingInfo.renderArea.extent = extent;
+    hdrRenderingInfo.layerCount = 1;
+    hdrRenderingInfo.colorAttachmentCount = 1;
+    hdrRenderingInfo.pColorAttachments = &hdrColorAttachment;
+    hdrRenderingInfo.pDepthAttachment = &depthAttachment;
 
-    vkCmdBeginRendering(cmd, &renderingInfo);
+    vkCmdBeginRendering(cmd, &hdrRenderingInfo);
 
-    // Dynamic viewport & scissor
     VkViewport viewport{};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = static_cast<float>(m_swapchain->getExtent().width);
-    viewport.height = static_cast<float>(m_swapchain->getExtent().height);
+    viewport.width = static_cast<float>(extent.width);
+    viewport.height = static_cast<float>(extent.height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     vkCmdSetViewport(cmd, 0, 1, &viewport);
 
     VkRect2D scissor{};
     scissor.offset = {0, 0};
-    scissor.extent = m_swapchain->getExtent();
+    scissor.extent = extent;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     // Push Constants for Slang Shaders (Shared by Sky & Terrain)
     rhi::TerrainPushConstants pushConstants{};
     pushConstants.model = glm::mat4(1.0f);
-    pushConstants.view = camera.getViewMatrix();
-    pushConstants.proj = camera.getProjectionMatrix();
+    pushConstants.view = view;
+    pushConstants.proj = proj;
     pushConstants.cameraPos = glm::vec4(camera.getPosition(), cloudDensity);
-    pushConstants.sunDir = glm::vec4(glm::normalize(sunDir), windSpeed);
+    pushConstants.sunDir = glm::vec4(sunNorm, windSpeed);
     pushConstants.sunColor = glm::vec4(sunColor, blizzardFactor);
     pushConstants.time = totalTime;
     pushConstants.minElev = m_minElevation;
     pushConstants.maxElev = m_maxElevation;
     pushConstants.cloudBase = cloudBase;
 
-    // Step 11: 1. Draw Stratospheric Dynamic Sky (Fullscreen Triangle from SV_VertexID)
+    // A. Draw Stratospheric Dynamic Sky into HDR
     if (m_skyPipeline) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_skyPipeline->getHandle());
         vkCmdPushConstants(
@@ -571,7 +999,7 @@ void Renderer::renderFrame(
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }
 
-    // 2. Draw Terrain Mesh (Occludes sky where mountains are present)
+    // B. Draw Terrain Mesh into HDR
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->getHandle());
     vkCmdPushConstants(
         cmd,
@@ -582,7 +1010,6 @@ void Renderer::renderFrame(
         &pushConstants
     );
 
-    // Draw Terrain Mesh
     if (m_vertexBuffer && m_indexBuffer && m_indexCount > 0) {
         if (m_descriptorSet != VK_NULL_HANDLE) {
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->getLayout(), 0, 1, &m_descriptorSet, 0, nullptr);
@@ -592,13 +1019,187 @@ void Renderer::renderFrame(
         VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
         vkCmdBindIndexBuffer(cmd, m_indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
-
         vkCmdDrawIndexed(cmd, m_indexCount, 1, 0, 0, 0);
     }
 
     vkCmdEndRendering(cmd);
 
-    // Transition swapchain color image from COLOR_ATTACHMENT_OPTIMAL to PRESENT_SRC_KHR
+    // =========================================================================
+    // 3. Pipeline Barrier: Transition HDR Image to Compute Shader Read
+    // =========================================================================
+    VkImageMemoryBarrier hdrToComputeBarrier{};
+    hdrToComputeBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    hdrToComputeBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    hdrToComputeBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    hdrToComputeBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    hdrToComputeBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    hdrToComputeBarrier.image = m_hdrImage;
+    hdrToComputeBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    hdrToComputeBarrier.subresourceRange.baseMipLevel = 0;
+    hdrToComputeBarrier.subresourceRange.levelCount = 1;
+    hdrToComputeBarrier.subresourceRange.baseArrayLayer = 0;
+    hdrToComputeBarrier.subresourceRange.layerCount = 1;
+    hdrToComputeBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    hdrToComputeBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(
+        cmd,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        0, nullptr,
+        0, nullptr,
+        1, &hdrToComputeBarrier
+    );
+
+    // =========================================================================
+    // 4. Compute Pass 1: 64-Bin Log-Luminance Histogram Evaluation
+    // =========================================================================
+    if (m_histogramPipeline) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_histogramPipeline->getHandle());
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_histogramPipeline->getLayout(), 0, 1, &m_histogramDescriptorSet, 0, nullptr);
+
+        struct HistPush {
+            uint32_t width;
+            uint32_t height;
+            float minLogLum;
+            float maxLogLum;
+        } histPush{extent.width, extent.height, -8.0f, 16.0f};
+
+        vkCmdPushConstants(cmd, m_histogramPipeline->getLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(histPush), &histPush);
+        uint32_t groupX = (extent.width + 15) / 16;
+        uint32_t groupY = (extent.height + 15) / 16;
+        vkCmdDispatch(cmd, groupX, groupY, 1);
+    }
+
+    // Barrier: Wait for histogram compute writes before adaptation reduction
+    VkBufferMemoryBarrier histBarrier{};
+    histBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    histBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    histBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    histBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    histBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    histBarrier.buffer = m_histogramBuffer->getHandle();
+    histBarrier.offset = 0;
+    histBarrier.size = 64 * sizeof(uint32_t);
+
+    vkCmdPipelineBarrier(
+        cmd,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        0, nullptr,
+        1, &histBarrier,
+        0, nullptr
+    );
+
+    // =========================================================================
+    // 5. Compute Pass 2: Asymmetric Human Eye Adaptation & Exposure Reduction
+    // =========================================================================
+    if (m_adaptPipeline) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_adaptPipeline->getHandle());
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_adaptPipeline->getLayout(), 0, 1, &m_adaptDescriptorSet, 0, nullptr);
+
+        struct AdaptPush {
+            uint32_t totalPixels;
+            float deltaTime;
+            float minLogLum;
+            float maxLogLum;
+            float adaptSpeedUp;
+            float adaptSpeedDown;
+            float exposureKey;
+        } adaptPush{
+            extent.width * extent.height,
+            deltaTime,
+            -8.0f,
+            16.0f,
+            3.8f, // Fast pupil constriction (dark to snow)
+            1.2f, // Slower rhodopsin recovery (snow to crevasse shadow)
+            1.15f // ISO 100 middle-grey exposure key
+        };
+
+        vkCmdPushConstants(cmd, m_adaptPipeline->getLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(adaptPush), &adaptPush);
+        vkCmdDispatch(cmd, 1, 1, 1);
+    }
+
+    // Barrier: Wait for exposure buffer write before fragment post-process
+    VkBufferMemoryBarrier expBarrier{};
+    expBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    expBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    expBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    expBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    expBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    expBarrier.buffer = m_exposureBuffer->getHandle();
+    expBarrier.offset = 0;
+    expBarrier.size = 4 * sizeof(float);
+
+    VkImageMemoryBarrier swapchainAttachBarrier{};
+    swapchainAttachBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    swapchainAttachBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    swapchainAttachBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    swapchainAttachBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    swapchainAttachBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    swapchainAttachBarrier.image = m_swapchain->getImage(imageIndex);
+    swapchainAttachBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    swapchainAttachBarrier.subresourceRange.baseMipLevel = 0;
+    swapchainAttachBarrier.subresourceRange.levelCount = 1;
+    swapchainAttachBarrier.subresourceRange.baseArrayLayer = 0;
+    swapchainAttachBarrier.subresourceRange.layerCount = 1;
+    swapchainAttachBarrier.srcAccessMask = 0;
+    swapchainAttachBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    VkImageMemoryBarrier postImageBarriers[] = {swapchainAttachBarrier};
+
+    vkCmdPipelineBarrier(
+        cmd,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        0,
+        0, nullptr,
+        1, &expBarrier,
+        1, postImageBarriers
+    );
+
+    // =========================================================================
+    // 6. Pass 3: Photometric Post-Processing, Glare, Sunstars & ACES to Swapchain
+    // =========================================================================
+    VkRenderingAttachmentInfo swapchainColorAttachment{};
+    swapchainColorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    swapchainColorAttachment.imageView = m_swapchain->getImageView(imageIndex);
+    swapchainColorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    swapchainColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    swapchainColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    VkRenderingInfo postRenderingInfo{};
+    postRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    postRenderingInfo.renderArea.offset = {0, 0};
+    postRenderingInfo.renderArea.extent = extent;
+    postRenderingInfo.layerCount = 1;
+    postRenderingInfo.colorAttachmentCount = 1;
+    postRenderingInfo.pColorAttachments = &swapchainColorAttachment;
+    postRenderingInfo.pDepthAttachment = nullptr;
+
+    vkCmdBeginRendering(cmd, &postRenderingInfo);
+
+    if (m_postprocessPipeline) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postprocessPipeline->getHandle());
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postprocessPipeline->getLayout(), 0, 1, &m_postprocessDescriptorSet, 0, nullptr);
+
+        rhi::PostProcessPushConstants postPush{};
+        postPush.sunScreenPos = sunScreen;
+        postPush.resolution = glm::vec2(static_cast<float>(extent.width), static_cast<float>(extent.height));
+        postPush.time = totalTime;
+        postPush.blizzard = blizzardFactor;
+
+        vkCmdPushConstants(cmd, m_postprocessPipeline->getLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(postPush), &postPush);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
+
+    vkCmdEndRendering(cmd);
+
+    // =========================================================================
+    // 7. Transition Swapchain Image to PRESENT_SRC_KHR
+    // =========================================================================
     VkImageMemoryBarrier presentBarrier{};
     presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     presentBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -626,7 +1227,7 @@ void Renderer::renderFrame(
 
     vkEndCommandBuffer(cmd);
 
-    // Submit to Graphics Queue
+    // Submit to Graphics/Compute Queue
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
@@ -646,26 +1247,35 @@ void Renderer::renderFrame(
         throw std::runtime_error("Failed to submit draw command buffer!");
     }
 
-    // Present to Window
-    VkResult presentRes = m_swapchain->present(m_renderFinishedSemaphores[m_currentFrame], imageIndex);
-    if (presentRes == VK_ERROR_OUT_OF_DATE_KHR || presentRes == VK_SUBOPTIMAL_KHR) {
+    // Present to Swapchain
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+
+    VkSwapchainKHR swapchains[] = {m_swapchain->getHandle()};
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = swapchains;
+    presentInfo.pImageIndices = &imageIndex;
+
+    result = vkQueuePresentKHR(m_context->getPresentQueue(), &presentInfo);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
         onResize();
-    } else if (presentRes != VK_SUCCESS) {
+    } else if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to present swapchain image!");
     }
 
-    m_lastPresentedImage = imageIndex;
     m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 bool Renderer::saveScreenshot(const std::string& filepath) {
     vkDeviceWaitIdle(m_context->getDevice());
 
+    VkImage srcImage = m_swapchain->getImage(m_lastPresentedImage);
     uint32_t width = m_swapchain->getExtent().width;
     uint32_t height = m_swapchain->getExtent().height;
     VkDeviceSize imageSize = width * height * 4;
-
-    VkImage srcImage = m_swapchain->getImage(m_lastPresentedImage);
 
     rhi::VulkanBuffer stagingBuffer(
         *m_context,

@@ -338,10 +338,7 @@ float4 fragmentMain(SkyVertexOutput input) : SV_Target {
     }
 
     // =========================================================================
-    // 9. ACES Filmic Tone Mapping
+    // 9. Output Linear HDR Radiance (Photometric Tone Mapping in Post-Process)
     // =========================================================================
-    float exposure = 0.82;
-    float3 finalSky = ACESFilm(skyGrad * exposure);
-
-    return float4(finalSky, 1.0);
+    return float4(skyGrad, 1.0);
 }

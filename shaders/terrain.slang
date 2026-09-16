@@ -1004,12 +1004,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         finalColor = lerp(finalColor, plumeColor, plumeAlpha);
     }
 
-    // 13. Step 9.2: ACES Filmic Tone Mapping with Anti-Blowout Highlight Preservation
-    // Prevents harsh white clipping on sun-facing snow slopes; maintains crisp crest contours and normal relief
-    float exposure = 0.82;
-    float3 toneMapped = ACESFilm(finalColor * exposure);
-
-    return float4(toneMapped, 1.0);
+    // 13. Output Linear HDR Radiance (Photometric Tone Mapping & Adaptation in Post-Process)
+    return float4(finalColor, 1.0);
 }
 
 

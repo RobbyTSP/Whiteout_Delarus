@@ -45,6 +45,26 @@ VulkanPipeline::VulkanPipeline(
     const std::string& vertSpvPath,
     const std::string& fragSpvPath,
     bool isSky
+) : VulkanPipeline(
+    context,
+    colorFormat,
+    depthFormat,
+    vertSpvPath,
+    fragSpvPath,
+    VK_NULL_HANDLE,
+    sizeof(TerrainPushConstants),
+    isSky
+) {}
+
+VulkanPipeline::VulkanPipeline(
+    const VulkanContext& context,
+    VkFormat colorFormat,
+    VkFormat depthFormat,
+    const std::string& vertSpvPath,
+    const std::string& fragSpvPath,
+    VkDescriptorSetLayout externalDescriptorLayout,
+    uint32_t pushConstantSize,
+    bool isFullscreen
 ) : m_context(context) {
     VkDevice device = m_context.getDevice();
 
@@ -72,16 +92,14 @@ VulkanPipeline::VulkanPipeline(
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    if (!isSky) {
+    if (!isFullscreen) {
         vertexInputInfo.vertexBindingDescriptionCount = 1;
         vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
         vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
         vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
     } else {
         vertexInputInfo.vertexBindingDescriptionCount = 0;
-        vertexInputInfo.pVertexBindingDescriptions = nullptr;
         vertexInputInfo.vertexAttributeDescriptionCount = 0;
-        vertexInputInfo.pVertexAttributeDescriptions = nullptr;
     }
 
     // 3. Input Assembly
@@ -90,11 +108,12 @@ VulkanPipeline::VulkanPipeline(
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-    // 4. Dynamic States
+    // 4. Viewport & Scissor (Dynamic State)
     std::vector<VkDynamicState> dynamicStates = {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR
     };
+
     VkPipelineDynamicStateCreateInfo dynamicState{};
     dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
@@ -112,7 +131,7 @@ VulkanPipeline::VulkanPipeline(
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE; // Dual-sided mountain rendering
+    rasterizer.cullMode = isFullscreen ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -125,8 +144,9 @@ VulkanPipeline::VulkanPipeline(
     // 7. Depth & Stencil
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
     depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable = isSky ? VK_FALSE : VK_TRUE;
-    depthStencil.depthWriteEnable = isSky ? VK_FALSE : VK_TRUE;
+    bool hasDepth = (depthFormat != VK_FORMAT_UNDEFINED && !isFullscreen);
+    depthStencil.depthTestEnable = hasDepth ? VK_TRUE : VK_FALSE;
+    depthStencil.depthWriteEnable = hasDepth ? VK_TRUE : VK_FALSE;
     depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable = VK_FALSE;
@@ -145,7 +165,10 @@ VulkanPipeline::VulkanPipeline(
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
-    if (!isSky) {
+    if (externalDescriptorLayout != VK_NULL_HANDLE) {
+        m_descriptorSetLayout = externalDescriptorLayout;
+        m_ownsDescriptorSetLayout = false;
+    } else if (!isFullscreen) {
         // 9. Descriptor Set Layout for 20 Texture Samplers (Satellite, Normal, Geomorphology, 4x PBR Sets, DEM Float32)
         std::vector<VkDescriptorSetLayoutBinding> samplerBindings(20);
         for (uint32_t i = 0; i < 20; i++) {
@@ -164,33 +187,37 @@ VulkanPipeline::VulkanPipeline(
         if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create descriptor set layout for terrain textures!");
         }
+        m_ownsDescriptorSetLayout = true;
+    } else {
+        m_descriptorSetLayout = VK_NULL_HANDLE;
+        m_ownsDescriptorSetLayout = false;
     }
 
     // 10. Pipeline Layout with Push Constants & Descriptors
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pushConstantRange.offset = 0;
-    pushConstantRange.size = sizeof(TerrainPushConstants);
+    pushConstantRange.size = pushConstantSize;
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = (m_descriptorSetLayout != VK_NULL_HANDLE) ? 1 : 0;
     pipelineLayoutInfo.pSetLayouts = (m_descriptorSetLayout != VK_NULL_HANDLE) ? &m_descriptorSetLayout : nullptr;
-    pipelineLayoutInfo.pushConstantRangeCount = 1;
-    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    pipelineLayoutInfo.pushConstantRangeCount = (pushConstantSize > 0) ? 1 : 0;
+    pipelineLayoutInfo.pPushConstantRanges = (pushConstantSize > 0) ? &pushConstantRange : nullptr;
 
     if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &m_layout) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create pipeline layout!");
     }
 
-    // 10. Modern Vulkan 1.3 Dynamic Rendering Info
+    // 11. Modern Vulkan 1.3 Dynamic Rendering Info
     VkPipelineRenderingCreateInfo renderingCreateInfo{};
     renderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     renderingCreateInfo.colorAttachmentCount = 1;
     renderingCreateInfo.pColorAttachmentFormats = &colorFormat;
     renderingCreateInfo.depthAttachmentFormat = depthFormat;
 
-    // 11. Create Graphics Pipeline
+    // 12. Create Graphics Pipeline
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.pNext = &renderingCreateInfo;
@@ -227,7 +254,7 @@ VulkanPipeline::~VulkanPipeline() {
     if (m_layout != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(device, m_layout, nullptr);
     }
-    if (m_descriptorSetLayout != VK_NULL_HANDLE) {
+    if (m_descriptorSetLayout != VK_NULL_HANDLE && m_ownsDescriptorSetLayout) {
         vkDestroyDescriptorSetLayout(device, m_descriptorSetLayout, nullptr);
     }
 }

@@ -767,10 +767,10 @@ Physikalisch exakte Modellierung der extremen Hochatmosphäre der Todeszone ($>7
   * Barometrische Dichteverteilung der Todeszone ($337\text{ hPa}$): Der Himmel dunkelt am Gipfel in tiefes Kosmos-Schwarzblau ab; Sterne werden tagsüber sichtbar.
   * Chappuis-Ozonabsorption (550–650 nm) für intensives Alpenglühen-Zenitlicht.
   * Eiskristall-Atmosphärenoptik: Physikalischer $22^\circ$-Halo um die Sonne, Nebensonnen (Parhelia) und Lichtsäulen bei Dämmerung.
-* [ ] **Schritt 17 (1:1 Part XV): Photometrische HDR-Kamera & Human Eye Adaptation:**
-  * Compute-gestützte 64-Bin Log-Luminanz-Histogramm-Analyse für über $100.000:1$ Dynamikumfang ($120.000\text{ Lux}$ Mittagssonne auf Firn vs. $<800\text{ Lux}$ Felsnischen).
-  * Organische Pupillenadaption beim Blickwechsel zwischen Schattenwänden und gleißendem Gipfelfirn.
-  * Anamorpher Dual-Pass Eiskristall-Glare & Beugungssterne (Sunstars).
+* [x] **Schritt 17 (1:1 Part XV): Photometrische HDR-Kamera & Human Eye Adaptation:**
+  * Compute-gestützte 64-Bin Log-Luminanz-Histogramm-Analyse: Über $100.000:1$ Dynamikumfang ($120.000\text{ Lux}$ Mittagssonne auf Firn vs. $<800\text{ Lux}$ Felsnischen) parallelisiert in GPU Groupshared Memory abgebildet. Outlier-Rejection filtert die extremen 10% Schwarz-Void und 2% Glints.
+  * Organische Pupillenadaption mit asymmetrischer Rhodopsin-Kinetik ($1,2\text{ s}^{-1}$ Hell-nach-Dunkel vs. $3,8\text{ s}^{-1}$ Dunkel-nach-Hell) für naturgetreue Blendung beim Verlassen von Felsverschneidungen auf gleißende Schneeflächen.
+  * Anamorpher Dual-Pass Eiskristall-Glare & Beugungssterne: Hexagonale 6-Punkt-Beugungsstrahlen passend zum $60^\circ$-Prismenwinkel hexagonaler Eiskristalle mit chromatischer Dispersion, horizontalem Streifglanz und dynamischem 5-Tap-Okklusionstest gegen Felsgrate.
 * [ ] **Schritt 18 (1:1 Part XVI): CDLOD / Nanite-Level Mikro-Terrain (0,25m Kletter-Auflösung):**
   * Continuous Distance LOD: Dynamische Quadtree-Unterteilung auf bis zu $0,25\text{ m}$ Gitterabstand im 40-Meter-Nahbereich des Spielers.
   * Photogrammetrie-Hotspots für Schlüsselstellen (Hillary Step, Third Step, South Col) mit zentimetergenauen Kletterkanten, Flechtenbewuchs (*Xanthoria elegans*) und Felsblock-Instancing.

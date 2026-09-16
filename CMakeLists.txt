@@ -63,6 +63,10 @@ add_slang_shader("terrain.slang" "vertex" "vertexMain" "terrain_vert.spv")
 add_slang_shader("terrain.slang" "fragment" "fragmentMain" "terrain_frag.spv")
 add_slang_shader("sky.slang" "vertex" "vertexMain" "sky_vert.spv")
 add_slang_shader("sky.slang" "fragment" "fragmentMain" "sky_frag.spv")
+add_slang_shader("histogram.slang" "compute" "computeMain" "histogram_comp.spv")
+add_slang_shader("adapt_exposure.slang" "compute" "computeMain" "adapt_exposure_comp.spv")
+add_slang_shader("postprocess.slang" "vertex" "vertexMain" "postprocess_vert.spv")
+add_slang_shader("postprocess.slang" "fragment" "fragmentMain" "postprocess_frag.spv")
 
 add_custom_target(compile_shaders ALL DEPENDS ${SPV_TARGETS})
 
@@ -75,6 +79,7 @@ set(SOURCES
     src/rhi/VulkanSwapchain.cpp
     src/rhi/VulkanShader.cpp
     src/rhi/VulkanPipeline.cpp
+    src/rhi/VulkanComputePipeline.cpp
     src/rhi/VulkanBuffer.cpp
     src/rhi/VulkanTexture.cpp
     src/renderer/Renderer.cpp

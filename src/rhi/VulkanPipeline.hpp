@@ -31,6 +31,13 @@ struct TerrainPushConstants {
     float cloudBase;      // 4 bytes: Wolkenmeer sea of clouds base elevation (~4900m)
 };
 
+struct PostProcessPushConstants {
+    glm::vec4 sunScreenPos; // xy = screen UV [0, 1], z = isVisible (0/1), w = sunIntensity
+    glm::vec2 resolution;   // screen width, height
+    float time;             // total elapsed time
+    float blizzard;         // blizzard factor [0, 1]
+};
+
 class VulkanPipeline {
 public:
     VulkanPipeline(
@@ -41,6 +48,19 @@ public:
         const std::string& fragSpvPath,
         bool isSky = false
     );
+
+    // Constructor for custom / post-process graphics pipelines
+    VulkanPipeline(
+        const VulkanContext& context,
+        VkFormat colorFormat,
+        VkFormat depthFormat,
+        const std::string& vertSpvPath,
+        const std::string& fragSpvPath,
+        VkDescriptorSetLayout externalDescriptorLayout,
+        uint32_t pushConstantSize,
+        bool isFullscreen = true
+    );
+
     ~VulkanPipeline();
 
     VulkanPipeline(const VulkanPipeline&) = delete;
@@ -53,6 +73,7 @@ public:
 private:
     const VulkanContext& m_context;
     VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
+    bool m_ownsDescriptorSetLayout = false;
     VkPipelineLayout m_layout = VK_NULL_HANDLE;
     VkPipeline m_pipeline = VK_NULL_HANDLE;
 };
