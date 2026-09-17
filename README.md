@@ -808,9 +808,41 @@ Physikalisch exakte Modellierung der extremen Hochatmosphäre der Todeszone ($>7
   * **Interaktive Steuerung & CLI-Optionen:**
     * Auslösung der Lhotse-Staublawine im laufenden Spiel per Taste `K` oder über den CLI-Startparameter `--avalanche`.
     * Automatische Schritt-Aufzeichnung beim Gehen, Sprinten und Landen aus Sprüngen mit physikalischem Aufprall-Doppelabdruck.
-* [ ] **Schritt 21 (1:1 Part XIX): 3D Gaussian Splatting Photogrammetrie-Hotspots:**
-  * Direkte Integration von 3D Gaussian Splats in die Vulkan-Pipeline für den Hillary Step, das Gipfelplateau mit Gebetsfahnen und den Südsattel.
-  * Fotorealismus in 8K Ground-Truth bis auf wenige Millimeter Betrachtungsabstand.
+* [x] **Schritt 21 (1:1 Part XIX): 3D Gaussian Splatting Photogrammetrie-Hotspots:**
+  * **Native Vulkan 1.3+ / 1.4 Dynamic Rendering 3DGS Pipeline:**
+    * Direkte Integration von 3D Gaussian Splats in die HDR Forward-Rendering-Pipeline ohne Compute-Rasterizer-Umwege oder Pipeline-Stalls.
+    * 64-Byte GPU-gepacktes Splat-Layout (`GaussianSplatGPU`):
+      * `posRadius` (vec4): 3D-Weltposition $(x, y, z)$ und Hüllradius $(w)$ in Metern.
+      * `rotQuat` (vec4): $SO(3)$ Orientierungs-Quaternion $(qx, qy, qz, qw)$.
+      * `scaleOpac` (vec4): Halbachsen der 3D-Kovarianzellipse $(s_x, s_y, s_z)$ und Opazität $(w \in [0, 1])$.
+      * `colorSH` (vec4): Linearer HDR-Basis-Farbvektor $(r, g, b)$ und Hotspot-Identifikator $(w \in \{0, 1, 2\})$.
+    * Schnelle CPU-Tiefensortierung (Back-to-Front) der aktiven Splats im Nahbereich ($< 120\text{ m}$) mit sofortigem Upload in einen Host-Visible / Host-Coherent Index-Buffer (`m_gaussianIndexBuffer`).
+  * **Echtzeit-EWA-Projektion & Mahalanobis-Fragment-Shading (`shaders/gaussian_splat.slang`):**
+    * 3D-zu-2D Elliptical Weighted Average (EWA) Perspektivprojektion:
+      * 3D-Kovarianzmatrix $\Sigma = R \cdot S \cdot S^T \cdot R^T$ im Weltraum.
+      * Jacobi-Matrix $J$ der projektiven Abbildung an der Kameraposition $t = (t_x, t_y, t_z)$ mit $z_{\text{cam}} = -t_z > 0$:
+        $$J = \begin{pmatrix} \frac{f_x}{z_{\text{cam}}} & 0 & -\frac{f_x t_x}{z_{\text{cam}}^2} \\ 0 & \frac{f_y}{z_{\text{cam}}} & -\frac{f_y t_y}{z_{\text{cam}}^2} \end{pmatrix}$$
+      * 2D-Bildschirm-Kovarianzmatrix $\Sigma_{2D} = (J W) \Sigma (J W)^T + 0,3 \cdot I_{2\times 2}$ mit Tiefpassfilter zur Vermeidung von Sub-Pixel-Aliasing.
+    * Eigenwert-Zerlegung der $2 \times 2$ Matrix für bildschirmparallele $3\sigma$-Bounding-Quads mit Hauptachsen-Ausrichtung.
+    * Sub-Pixel-präzise Auswertung der Mahalanobis-Distanz $d^2 = \Delta \mathbf{x}^T \Sigma_{2D}^{-1} \Delta \mathbf{x}$ im Fragment-Shader mit `smoothstep`-geschärfter Opazitätskurve für messerscharfe, artefaktfreie Materialkanten.
+    * Photometrische HDR-Beleuchtung mit Richtungsstreuung, stratosphärischem Himmelslicht und physikalischer Mie-Vorwärts-Transzendenz (`forwardGlow`) für flatternde Gebetsfahnenstoffe.
+  * **Drei Sub-Millimeter-Photogrammetrie-Hotspots (15.108 Ground-Truth-Splats):**
+    * **Hotspot 0: Mount Everest Gipfelplateau (8.848,86 m):**
+      * Chinesisches Vermessungsstativ (eloxierte Aluminium-Prismenrohre & Vermessungsbeacon).
+      * Tibetische Gebetsfahnen (*Lungta*) in 8 radial gespannten Kettenlinien in den 5 heiligen Farben (Blau, Weiß, Rot, Grün, Gelb) mit Windflattern, ausgefransten Fäden und Holzdruck-Mantras.
+      * Gipfel-Steinpyramide (Cairn) und windgepresste Firnschnee-Wechte.
+    * **Hotspot 1: Hillary Step Klettergrat (8.790 m):**
+      * 12 m senkrechte Kalkstein-Kaminverschneidung mit Qomolangma-Klüften.
+      * Verworrenes Dickicht jahrzehntealter Fixseile (Neongelb, Ultramarinblau, Karminrot, sonnengebleichtes Polyamid, Violett).
+      * Metallene Karabiner, Felshaken (Pitons) und silbrige Steigeisen-Kratzspuren (*Crampon Scratches*) auf schmalen Felstritten.
+    * **Hotspot 2: Südsattel (Camp 4, 7.906 m) Historisches Hochlager:**
+      * Cluster aus 32 historischen gelben und orangefarbenen Expeditions-Sauerstoffflaschen mit Messingventilen und Manometern.
+      * Zerrissene geodätische Expeditionszelt-Wracks mit gebogenen Aluminium-Gestängebögen und flatterndem Ripstop-Nylon.
+      * Dunkler metamorpher Schieferschutt und gefrorenes Moränengeröll.
+  * **Interaktive Steuerung & CLI-Inspektion:**
+    * CLI-Parameter `--hotspot <summit|hillary|southcol>` zur sofortigen Kamerapositionierung für wissenschaftliche Begutachtung und Screenshot-Verifikation.
+    * Taste `8` für Direktsprung auf das Mount Everest Gipfelplateau (8.848 m).
+    * Automatische HUD-Erkennung mit Proximity-Telemetrie bei Annäherung an alle drei Hotspots.
 * [ ] **Schritt 22 (1:1 Part XX): Viszerale Bergsteiger-Kryo-Optik:**
   * Physikalische Kategorie-4-Gletscherbrille mit Brewster-Winkel-Polarisation gegen Schneeblendung.
   * Atem-Kondensation und gefrierende Eisblumen an den Rändern der Gletscherbrille bei Anstrengung.

@@ -34,6 +34,7 @@ int main(int argc, char* argv[]) {
     std::cout << "   - 3: Fast Travel -> Lhotse Face / South Col (8,410m)\n";
     std::cout << "   - 4: Fast Travel -> Ama Dablam Valley (4,653m)\n";
     std::cout << "   - 5: Fast Travel -> Khumbu Icefall Séracs & Crevasses (5,867m)\n";
+    std::cout << "   - 8: Fast Travel -> Mount Everest Summit (8,848m) [3DGS Gebetsfahnen & Stativ]\n";
     std::cout << "   - T: Cycle Time of Day (Dawn Alpenglühen -> Noon -> Sunset -> Night)\n";
     std::cout << "   - B: Toggle Blizzard / Whiteout Mode (30m Visibility & Spindrift)\n";
     std::cout << "   - L: Toggle Live Open-Meteo Weather Synchronization\n";
@@ -97,6 +98,24 @@ int main(int argc, char* argv[]) {
                 }
             } else if (std::string(argv[i]) == "--blizzard") {
                 weatherSystem.toggleBlizzard();
+            } else if (std::string(argv[i]) == "--hotspot" && i + 1 < argc) {
+                std::string hs = argv[++i];
+                if (hs == "summit" || hs == "everest") {
+                    customCamPos = glm::vec3(-8463.5f, 8756.2f, -8053.5f);
+                    customYaw = -77.0f;
+                    customPitch = -12.0f;
+                    hasCustomCam = true;
+                } else if (hs == "hillary" || hs == "step") {
+                    customCamPos = glm::vec3(-8500.0f, 8754.0f, -8002.0f);
+                    customYaw = 90.0f;
+                    customPitch = 16.0f;
+                    hasCustomCam = true;
+                } else if (hs == "southcol" || hs == "camp4" || hs == "col") {
+                    customCamPos = glm::vec3(-7743.0f, 8386.5f, -4991.5f);
+                    customYaw = -49.4f;
+                    customPitch = -18.0f;
+                    hasCustomCam = true;
+                }
             } else if (std::string(argv[i]) == "--cam" && i + 5 < argc) {
                 customCamPos.x = static_cast<float>(std::atof(argv[i + 1]));
                 customCamPos.y = static_cast<float>(std::atof(argv[i + 2]));
@@ -107,7 +126,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        if (initialPreset >= 1 && initialPreset <= 7) {
+        if (initialPreset >= 1 && initialPreset <= 8) {
             player.teleportToPreset(initialPreset);
         }
 

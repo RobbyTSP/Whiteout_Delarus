@@ -76,6 +76,8 @@ add_slang_shader("snow_physics.slang" "compute" "computeMain" "snow_physics_comp
 add_slang_shader("avalanche_physics.slang" "compute" "computeMain" "avalanche_physics_comp.spv")
 add_slang_shader("avalanche.slang" "vertex" "vertexMain" "avalanche_vert.spv")
 add_slang_shader("avalanche.slang" "fragment" "fragmentMain" "avalanche_frag.spv")
+add_slang_shader("gaussian_splat.slang" "vertex" "vertexMain" "gaussian_splat_vert.spv")
+add_slang_shader("gaussian_splat.slang" "fragment" "fragmentMain" "gaussian_splat_frag.spv")
 
 add_custom_target(compile_shaders ALL DEPENDS ${SPV_TARGETS})
 

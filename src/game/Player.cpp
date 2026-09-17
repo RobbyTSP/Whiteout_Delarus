@@ -23,19 +23,19 @@ void Player::teleportToPreset(int preset) {
             m_pitch = 18.0f;
             m_currentLocationName = "Everest Base Camp (South)";
             break;
-        case 2: // Mount Everest Summit Ridge / Hillary Step
-            m_position.x = -8535.0f;
-            m_position.z = -7935.0f;
-            m_yaw = 40.0f;
-            m_pitch = 2.0f;
-            m_currentLocationName = "Mount Everest Summit Ridge (8,848m)";
+        case 2: // Mount Everest Summit Ridge / Hillary Step (8,790m)
+            m_position.x = -8500.0f;
+            m_position.z = -8002.0f;
+            m_yaw = 90.0f;
+            m_pitch = 16.0f;
+            m_currentLocationName = "Hillary Step (8,790m) [3DGS Fixseile]";
             break;
-        case 3: // Lhotse Face / Camp 3
-            m_position.x = -7740.0f;
-            m_position.z = -4995.0f;
-            m_yaw = -45.0f;
-            m_pitch = 12.0f;
-            m_currentLocationName = "Lhotse Face / South Col";
+        case 3: // Lhotse Face / South Col (7,906m)
+            m_position.x = -7743.0f;
+            m_position.z = -4991.5f;
+            m_yaw = -49.4f;
+            m_pitch = -18.0f;
+            m_currentLocationName = "South Col Camp 4 (7,906m) [3DGS O2-Dump]";
             break;
         case 4: // Ama Dablam Base
             m_position.x = -14966.0f;
@@ -64,6 +64,13 @@ void Player::teleportToPreset(int preset) {
             m_yaw = 15.0f;
             m_pitch = 18.0f;
             m_currentLocationName = "Western Cwm 'Glutofen' (6,400m) - Multi-Bounce GI";
+            break;
+        case 8: // Mount Everest Summit Plateau (8,848.86m) - 3D Gaussian Splatting
+            m_position.x = -8463.5f;
+            m_position.z = -8053.5f;
+            m_yaw = -77.0f;
+            m_pitch = -12.0f;
+            m_currentLocationName = "Everest Summit (8,848m) [3DGS Hotspot]";
             break;
         default:
             return;
@@ -125,7 +132,7 @@ void Player::update(float deltaTime, const core::WindowEventState& input) {
         toggleMode();
     }
 
-    if (input.teleportPreset >= 1 && input.teleportPreset <= 7) {
+    if (input.teleportPreset >= 1 && input.teleportPreset <= 8) {
         teleportToPreset(input.teleportPreset);
     }
 
@@ -334,19 +341,22 @@ std::string Player::getTelemetryString() const {
            << " | Jet Stream: WNW " << static_cast<int>(m_currentGeology.jetStreamSpeedKmh) << " km/h"
            << " (Chill: " << static_cast<int>(m_currentGeology.windChillCelsius) << "°C)";
 
-        // Hotspot Proximity Recognition (Step 18)
-        float dHillary = glm::length(glm::vec2(m_position.x - (-8535.0f), m_position.z - (-7935.0f)));
-        float dThird = glm::length(glm::vec2(m_position.x - (-8690.0f), m_position.z - (-7820.0f)));
+        // Hotspot Proximity Recognition (Step 18 & Step 21 3DGS)
+        float dSummit = glm::length(glm::vec2(m_position.x - (-8462.64f), m_position.z - (-8057.24f)));
+        float dHillary = glm::length(glm::vec2(m_position.x - (-8500.0f), m_position.z - (-7995.0f)));
         float dCol = glm::length(glm::vec2(m_position.x - (-7740.0f), m_position.z - (-4995.0f)));
+        float dThird = glm::length(glm::vec2(m_position.x - (-8690.0f), m_position.z - (-7820.0f)));
         float dIcefall = glm::length(glm::vec2(m_position.x - (-13800.0f), m_position.z - (-8600.0f)));
         float dCwm = glm::length(glm::vec2(m_position.x - (-11800.0f), m_position.z - (-7550.0f)));
 
-        if (dHillary < 65.0f) {
-            ss << " | [HOTSPOT: Hillary Step (8,790m) - 0.25m Kletterkanten]";
+        if (dSummit < 75.0f) {
+            ss << " | [HOTSPOT: Mount Everest Summit (8,848m) - 3D Gaussian Splatting Gebetsfahnen & Vermessungsstativ]";
+        } else if (dHillary < 75.0f) {
+            ss << " | [HOTSPOT: Hillary Step (8,790m) - 3D Gaussian Splatting Fixseil-Tangle & Felssporn]";
+        } else if (dCol < 85.0f) {
+            ss << " | [HOTSPOT: South Col Camp 4 (7,906m) - 3D Gaussian Splatting O2-Flaschen & Zeltwracks]";
         } else if (dThird < 65.0f) {
             ss << " | [HOTSPOT: Third Step (8,690m) - Vertikaler Kalksteinturm]";
-        } else if (dCol < 85.0f) {
-            ss << " | [HOTSPOT: South Col (7,906m) - Xanthoria elegans Flechten]";
         } else if (dIcefall < 85.0f) {
             ss << " | [HOTSPOT: Khumbu Icefall - Séracs & Spalten]";
         } else if (dCwm < 500.0f) {
@@ -362,7 +372,7 @@ std::string Player::getTelemetryString() const {
            << "Far: 150km";
     }
 
-    ss << " | [Tab/V]: Mode | [1-7]: Teleport (1:BC, 2:Hillary, 3:SouthCol, 4:AmaDablam, 5:Icefall, 6:ThirdStep, 7:WesternCwm)";
+    ss << " | [Tab/V]: Mode | [1-8]: Teleport (1:BC, 2:Hillary, 3:SouthCol, 4:AmaDablam, 5:Icefall, 6:ThirdStep, 7:WesternCwm, 8:Summit)";
     return ss.str();
 }
 

@@ -104,6 +104,7 @@ Renderer::Renderer(core::Window& window)
     initSnowPhysics();
     initTexturesAndDescriptors();
     initAvalanche();
+    initGaussianSplats();
     initHdrAndPostprocessPipelines();
 
     // Try loading Everest DEM data from Step 1; fallback to high-altitude procedural fractal terrain
@@ -146,6 +147,7 @@ Renderer::~Renderer() {
 
     cleanupSnowPhysics();
     cleanupAvalanche();
+    cleanupGaussianSplats();
     cleanupMultiBounceGI();
 
     if (m_histogramDescriptorLayout != VK_NULL_HANDLE) {
@@ -1058,6 +1060,274 @@ void Renderer::renderAvalanche(
 
     // 6 vertices per quad, 8,192 particle instances
     vkCmdDraw(cmd, 6, AVALANCHE_PARTICLE_COUNT, 0, 0);
+}
+
+void Renderer::initGaussianSplats() {
+    VkDevice device = m_context->getDevice();
+
+    // 1. Try loading pre-baked 3D Gaussian Photogrammetry Hotspots binary
+    std::string binPath = DATA_DIR "/processed/gaussian_hotspots.bin";
+    std::ifstream file(binPath, std::ios::binary);
+
+    struct SplatHeader {
+        char magic[4];
+        uint32_t version;
+        uint32_t count;
+        uint32_t reserved;
+    } header{};
+
+    bool loadedFromFile = false;
+    if (file.is_open()) {
+        file.read(reinterpret_cast<char*>(&header), sizeof(header));
+        if (std::string(header.magic, 4) == "GSPL" && header.count > 0) {
+            m_cpuSplats.resize(header.count);
+            file.read(reinterpret_cast<char*>(m_cpuSplats.data()), header.count * sizeof(GaussianSplatGPU));
+            m_gaussianSplatCount = header.count;
+            loadedFromFile = true;
+            std::cout << "[Renderer] Loaded " << m_gaussianSplatCount << " 3D Gaussian Splats from " << binPath << std::endl;
+        }
+        file.close();
+    }
+
+    if (!loadedFromFile) {
+        std::cout << "[Renderer] Generating procedural fallback 3D Gaussian Splats..." << std::endl;
+        m_cpuSplats.clear();
+        glm::vec3 sPos(-8462.64f, 8755.37f, -8057.24f);
+        for (int i = 0; i < 400; i++) {
+            GaussianSplatGPU s{};
+            float t = float(i) / 400.0f;
+            float angle = t * 6.28318f;
+            float r = 0.2f + 2.5f * (float(i % 20) / 20.0f);
+            s.posRadius = glm::vec4(sPos.x + std::cos(angle) * r, sPos.y + 0.1f + std::sin(angle * 3.0f) * 0.2f, sPos.z + std::sin(angle) * r, 0.25f);
+            s.rotQuat = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            s.scaleOpac = glm::vec4(0.12f, 0.12f, 0.02f, 0.95f);
+            glm::vec3 cols[5] = {
+                {0.06f, 0.32f, 0.88f}, {0.94f, 0.95f, 0.98f}, {0.88f, 0.12f, 0.15f}, {0.10f, 0.68f, 0.24f}, {0.96f, 0.82f, 0.08f}
+            };
+            s.colorSH = glm::vec4(cols[i % 5], 0.0f);
+            m_cpuSplats.push_back(s);
+        }
+        m_gaussianSplatCount = static_cast<uint32_t>(m_cpuSplats.size());
+    }
+
+    m_sortedSplatIndices.resize(m_gaussianSplatCount);
+    for (uint32_t i = 0; i < m_gaussianSplatCount; i++) {
+        m_sortedSplatIndices[i] = i;
+    }
+
+    // 2. Create GPU Storage Buffers
+    VkDeviceSize splatBufferSize = m_gaussianSplatCount * sizeof(GaussianSplatGPU);
+    m_gaussianSplatBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
+        *m_context,
+        m_cpuSplats.data(),
+        splatBufferSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+    );
+
+    VkDeviceSize indexBufferSize = m_gaussianSplatCount * sizeof(uint32_t);
+    m_gaussianIndexBuffer = std::make_unique<rhi::VulkanBuffer>(
+        *m_context,
+        indexBufferSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+    m_gaussianIndexBuffer->upload(m_sortedSplatIndices.data(), indexBufferSize);
+
+    // 3. Create Descriptor Set Layout
+    std::vector<VkDescriptorSetLayoutBinding> bindings(2);
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+
+    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_gaussianLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Gaussian Splat descriptor set layout!");
+    }
+
+    // 4. Allocate and Update Descriptor Set
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = m_descriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &m_gaussianLayout;
+
+    if (vkAllocateDescriptorSets(device, &allocInfo, &m_gaussianDescriptorSet) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate Gaussian Splat descriptor set!");
+    }
+
+    VkDescriptorBufferInfo splatInfo{};
+    splatInfo.buffer = m_gaussianSplatBuffer->getHandle();
+    splatInfo.offset = 0;
+    splatInfo.range = splatBufferSize;
+
+    VkDescriptorBufferInfo indexInfo{};
+    indexInfo.buffer = m_gaussianIndexBuffer->getHandle();
+    indexInfo.offset = 0;
+    indexInfo.range = indexBufferSize;
+
+    std::vector<VkWriteDescriptorSet> writes(2);
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = m_gaussianDescriptorSet;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[0].descriptorCount = 1;
+    writes[0].pBufferInfo = &splatInfo;
+
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = m_gaussianDescriptorSet;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[1].descriptorCount = 1;
+    writes[1].pBufferInfo = &indexInfo;
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+    // 5. Create Graphics Pipeline with Alpha Blending
+    std::vector<VkVertexInputBindingDescription> emptyBindings;
+    std::vector<VkVertexInputAttributeDescription> emptyAttribs;
+
+    uint32_t pushSize = sizeof(glm::mat4) * 2 + sizeof(glm::vec4) * 4; // 192 bytes
+
+    m_gaussianPipeline = std::make_unique<rhi::VulkanPipeline>(
+        *m_context,
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        m_swapchain->getDepthFormat(),
+        SHADER_DIR "/gaussian_splat_vert.spv",
+        SHADER_DIR "/gaussian_splat_frag.spv",
+        emptyBindings,
+        emptyAttribs,
+        m_gaussianLayout,
+        pushSize,
+        VK_CULL_MODE_NONE,
+        true, // enableAlphaBlend
+        false // depthWrite = false
+    );
+
+    std::cout << "[Renderer] 3D Gaussian Splatting Photogrammetry Pipeline initialized ("
+              << m_gaussianSplatCount << " splats across 3 hotspots)." << std::endl;
+}
+
+void Renderer::cleanupGaussianSplats() {
+    VkDevice device = m_context->getDevice();
+    m_gaussianPipeline.reset();
+    m_gaussianSplatBuffer.reset();
+    m_gaussianIndexBuffer.reset();
+    if (m_gaussianLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_gaussianLayout, nullptr);
+        m_gaussianLayout = VK_NULL_HANDLE;
+    }
+}
+
+void Renderer::renderGaussianSplats(
+    VkCommandBuffer cmd,
+    const core::Camera& camera,
+    const glm::vec3& sunDir,
+    const glm::vec3& sunColor,
+    float blizzardFactor,
+    float windSpeed,
+    float totalTime
+) {
+    if (!m_gaussianPipeline || !m_gaussianSplatBuffer || !m_gaussianIndexBuffer || m_gaussianSplatCount == 0) return;
+
+    glm::vec3 camPos = camera.getPosition();
+    glm::vec3 camFwd = camera.getForward();
+
+    // Hotspot Centers:
+    // 0: Everest Summit (-8462.64, 8755.37, -8057.24)
+    // 1: Hillary Step (-8500.0, 8745.0, -7995.0)
+    // 2: South Col (-7740.0, 8385.0, -4995.0)
+    float dSummit = glm::length(glm::vec2(camPos.x - (-8462.64f), camPos.z - (-8057.24f)));
+    float dHillary = glm::length(glm::vec2(camPos.x - (-8500.0f), camPos.z - (-7995.0f)));
+    float dSouthCol = glm::length(glm::vec2(camPos.x - (-7740.0f), camPos.z - (-4995.0f)));
+    float minHotspotDist = std::min({dSummit, dHillary, dSouthCol});
+
+    if (minHotspotDist > 250.0f) return; // No hotspot in visual range
+
+    // Fast back-to-front depth sort of visible splats
+    std::vector<std::pair<float, uint32_t>> depthPairs;
+    depthPairs.reserve(m_gaussianSplatCount);
+
+    for (uint32_t i = 0; i < m_gaussianSplatCount; i++) {
+        glm::vec3 diff = glm::vec3(m_cpuSplats[i].posRadius) - camPos;
+        float dist = glm::length(diff);
+        if (dist < 120.0f) {
+            float depth = glm::dot(diff, camFwd);
+            if (depth > 0.15f) {
+                depthPairs.emplace_back(depth, i);
+            }
+        }
+    }
+
+    uint32_t visibleCount = static_cast<uint32_t>(depthPairs.size());
+
+    if (depthPairs.empty()) return;
+
+    // Sort back-to-front (descending depth)
+    std::sort(depthPairs.begin(), depthPairs.end(), [](const auto& a, const auto& b) {
+        return a.first > b.first;
+    });
+
+    for (uint32_t i = 0; i < visibleCount; i++) {
+        m_sortedSplatIndices[i] = depthPairs[i].second;
+    }
+    m_gaussianIndexBuffer->upload(m_sortedSplatIndices.data(), visibleCount * sizeof(uint32_t));
+
+    // Push Constants
+    struct GaussianSplatPushConstants {
+        glm::mat4 view;
+        glm::mat4 proj;
+        glm::vec4 cameraPos;
+        glm::vec4 sunDir;
+        glm::vec4 sunColor;
+        glm::vec4 screenParams;
+    } pc{};
+
+    pc.view = camera.getViewMatrix();
+    pc.proj = camera.getProjectionMatrix();
+    pc.cameraPos = glm::vec4(camPos, totalTime);
+    pc.sunDir = glm::vec4(glm::normalize(sunDir), blizzardFactor);
+    pc.sunColor = glm::vec4(sunColor, windSpeed);
+
+    VkExtent2D extent = m_swapchain->getExtent();
+    float fovYRad = glm::radians(65.0f);
+    float focalY = 0.5f * static_cast<float>(extent.height) / std::tan(0.5f * fovYRad);
+    float focalX = focalY;
+    pc.screenParams = glm::vec4(
+        static_cast<float>(extent.width),
+        static_cast<float>(extent.height),
+        focalX,
+        focalY
+    );
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gaussianPipeline->getHandle());
+    vkCmdBindDescriptorSets(
+        cmd,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_gaussianPipeline->getLayout(),
+        0, 1, &m_gaussianDescriptorSet,
+        0, nullptr
+    );
+    vkCmdPushConstants(
+        cmd,
+        m_gaussianPipeline->getLayout(),
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        0,
+        sizeof(GaussianSplatPushConstants),
+        &pc
+    );
+
+    // 6 vertices per quad, visibleCount instances
+    vkCmdDraw(cmd, 6, visibleCount, 0, 0);
 }
 
 void Renderer::initTexturesAndDescriptors() {
@@ -2445,6 +2715,17 @@ void Renderer::renderFrame(
         sunDir,
         sunColor,
         blizzardFactor,
+        totalTime
+    );
+
+    // Step 21: Render 3D Gaussian Splatting Photogrammetry Hotspots
+    renderGaussianSplats(
+        cmd,
+        camera,
+        sunDir,
+        sunColor,
+        blizzardFactor,
+        windSpeed,
         totalTime
     );
 

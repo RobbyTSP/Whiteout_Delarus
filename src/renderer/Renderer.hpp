@@ -176,6 +176,37 @@ private:
     bool m_avalancheActive = false;
     float m_avalancheTimer = 0.0f;
 
+    // Step 21: 3D Gaussian Splatting Photogrammetry Hotspots (Hillary Step, Summit Plateau, South Col)
+    struct GaussianSplatGPU {
+        glm::vec4 posRadius; // xyz = world position, w = bounding radius (m)
+        glm::vec4 rotQuat;   // xyzw = orientation quaternion
+        glm::vec4 scaleOpac; // xyz = 3D semi-axes (sx, sy, sz), w = opacity (0..1)
+        glm::vec4 colorSH;   // rgb = linear HDR base color, w = hotspot ID (0, 1, 2)
+    };
+
+    void initGaussianSplats();
+    void cleanupGaussianSplats();
+    void renderGaussianSplats(
+        VkCommandBuffer cmd,
+        const core::Camera& camera,
+        const glm::vec3& sunDir,
+        const glm::vec3& sunColor,
+        float blizzardFactor,
+        float windSpeed,
+        float totalTime
+    );
+
+    uint32_t m_gaussianSplatCount = 0;
+    std::vector<GaussianSplatGPU> m_cpuSplats;
+    std::vector<uint32_t> m_sortedSplatIndices;
+
+    std::unique_ptr<rhi::VulkanBuffer> m_gaussianSplatBuffer;
+    std::unique_ptr<rhi::VulkanBuffer> m_gaussianIndexBuffer;
+
+    std::unique_ptr<rhi::VulkanPipeline> m_gaussianPipeline;
+    VkDescriptorSetLayout m_gaussianLayout = VK_NULL_HANDLE;
+    VkDescriptorSet m_gaussianDescriptorSet = VK_NULL_HANDLE;
+
     // Step 18: 3D Boulder Instancing Data
     struct BoulderInstanceData {
         glm::mat4 model;
