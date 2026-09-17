@@ -49,6 +49,7 @@ ConstantBuffer<PushConstants> pc;
 
 [[vk::binding(18, 0)]] Sampler2D texGeomorphology;
 [[vk::binding(19, 0)]] Sampler2D texElevationDEM;
+[[vk::binding(20, 0)]] Sampler2D texMultiBounceGI;
 
 struct VertexInput {
     [[vk::location(0)]] float3 position   : POSITION;
@@ -235,7 +236,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float skyExposure = clamp(N.y * 0.5 + 0.5, 0.0, 1.0);
     float3 skyLightColor = float3(0.18, 0.28, 0.48);
     float3 groundBounce = float3(0.25, 0.26, 0.28);
-    float3 ambient = albedo * (skyLightColor * skyExposure + groundBounce * (1.0 - skyExposure)) * 0.45;
+    float2 terrainUV = (input.worldPos.xz / 34560.0) + 0.5;
+    float3 giRadiance = texMultiBounceGI.Sample(terrainUV).rgb;
+    float3 ambient = albedo * (skyLightColor * skyExposure + groundBounce * (1.0 - skyExposure) + giRadiance) * 0.45;
 
     float3 finalHDR = directLight + specular + ambient;
 

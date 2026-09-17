@@ -52,6 +52,7 @@ ConstantBuffer<PushConstants> pc;
 
 [[vk::binding(18, 0)]] Sampler2D texGeomorphology;
 [[vk::binding(19, 0)]] Sampler2D texElevationDEM;
+[[vk::binding(20, 0)]] Sampler2D texMultiBounceGI;
 
 struct VertexInput {
     [[vk::location(0)]] float3 position : POSITION;
@@ -440,7 +441,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     float groundBounceFactor = clamp(-N.y * 0.5 + 0.5, 0.0, 1.0);
     float3 snowGroundBounce = float3(0.10, 0.12, 0.16) * groundBounceFactor;
-    float3 ambient = albedo * (skyLight + snowGroundBounce) * (0.35 + 0.65 * contactAO);
+    float3 giRadiance = texMultiBounceGI.Sample(input.uv).rgb;
+    float3 ambient = albedo * (skyLight + snowGroundBounce + giRadiance) * (0.35 + 0.65 * contactAO);
 
     // Subsurface Scattering (Snow translucency on step edges)
     float3 sssLightDir = normalize(L + N * 0.35);

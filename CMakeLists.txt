@@ -71,6 +71,7 @@ add_slang_shader("micro_terrain.slang" "vertex" "vertexMain" "micro_terrain_vert
 add_slang_shader("micro_terrain.slang" "fragment" "fragmentMain" "micro_terrain_frag.spv")
 add_slang_shader("boulder.slang" "vertex" "vertexMain" "boulder_vert.spv")
 add_slang_shader("boulder.slang" "fragment" "fragmentMain" "boulder_frag.spv")
+add_slang_shader("multi_bounce_gi.slang" "compute" "computeMain" "multi_bounce_gi_comp.spv")
 
 add_custom_target(compile_shaders ALL DEPENDS ${SPV_TARGETS})
 
@@ -100,6 +101,7 @@ set(HEADERS
     src/rhi/VulkanSwapchain.hpp
     src/rhi/VulkanShader.hpp
     src/rhi/VulkanPipeline.hpp
+    src/rhi/VulkanComputePipeline.hpp
     src/rhi/VulkanBuffer.hpp
     src/rhi/VulkanTexture.hpp
     src/renderer/Renderer.hpp

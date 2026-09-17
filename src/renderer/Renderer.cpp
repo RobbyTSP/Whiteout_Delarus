@@ -100,6 +100,7 @@ Renderer::Renderer(core::Window& window)
 
     createCommandBuffers();
     initSyncObjects();
+    initMultiBounceGI();
     initTexturesAndDescriptors();
     initHdrAndPostprocessPipelines();
 
@@ -126,6 +127,7 @@ Renderer::~Renderer() {
     m_histogramPipeline.reset();
     m_adaptPipeline.reset();
     m_postprocessPipeline.reset();
+    m_giComputePipeline.reset();
     m_histogramBuffer.reset();
     m_exposureBuffer.reset();
     m_microPipeline.reset();
@@ -135,6 +137,8 @@ Renderer::~Renderer() {
     m_boulderVertexBuffer.reset();
     m_boulderIndexBuffer.reset();
     m_boulderInstanceBuffer.reset();
+
+    cleanupMultiBounceGI();
 
     if (m_histogramDescriptorLayout != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(device, m_histogramDescriptorLayout, nullptr);
@@ -288,12 +292,225 @@ void Renderer::cleanupHdrResources() {
     }
 }
 
+void Renderer::initMultiBounceGI() {
+    VkDevice device = m_context->getDevice();
+
+    // 1. Create 512x512 R16G16B16A16_SFLOAT Image for Multi-Bounce Irradiance
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = GI_RES;
+    imageInfo.extent.height = GI_RES;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+
+    if (vkCreateImage(device, &imageInfo, nullptr, &m_giImage) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Multi-Bounce GI image!");
+    }
+
+    VkMemoryRequirements memReqs;
+    vkGetImageMemoryRequirements(device, m_giImage, &memReqs);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReqs.size;
+    allocInfo.memoryTypeIndex = m_context->findMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &m_giImageMemory) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate Multi-Bounce GI image memory!");
+    }
+
+    vkBindImageMemory(device, m_giImage, m_giImageMemory, 0);
+
+    // 2. Create Image View
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = m_giImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device, &viewInfo, nullptr, &m_giImageView) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Multi-Bounce GI image view!");
+    }
+
+    // 3. Create Sampler (Linear filtering, clamp to edge)
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.mipLodBias = 0.0f;
+    samplerInfo.maxAnisotropy = 1.0f;
+    samplerInfo.compareOp = VK_COMPARE_OP_NEVER;
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxLod = 1.0f;
+
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &m_giSampler) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Multi-Bounce GI sampler!");
+    }
+}
+
+void Renderer::cleanupMultiBounceGI() {
+    VkDevice device = m_context->getDevice();
+    if (m_giImageView != VK_NULL_HANDLE) {
+        vkDestroyImageView(device, m_giImageView, nullptr);
+        m_giImageView = VK_NULL_HANDLE;
+    }
+    if (m_giImage != VK_NULL_HANDLE) {
+        vkDestroyImage(device, m_giImage, nullptr);
+        m_giImage = VK_NULL_HANDLE;
+    }
+    if (m_giImageMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, m_giImageMemory, nullptr);
+        m_giImageMemory = VK_NULL_HANDLE;
+    }
+    if (m_giSampler != VK_NULL_HANDLE) {
+        vkDestroySampler(device, m_giSampler, nullptr);
+        m_giSampler = VK_NULL_HANDLE;
+    }
+    if (m_giDescriptorLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_giDescriptorLayout, nullptr);
+        m_giDescriptorLayout = VK_NULL_HANDLE;
+    }
+}
+
+void Renderer::dispatchMultiBounceGI(
+    VkCommandBuffer cmd,
+    const glm::vec3& sunDir,
+    const glm::vec3& sunColor,
+    const glm::vec3& cameraPos,
+    float time,
+    float windSpeed,
+    float blizzardFactor
+) {
+    if (!m_giComputePipeline || m_giDescriptorSet == VK_NULL_HANDLE) return;
+
+    // 1. Transition GI Image to GENERAL for Compute Write
+    VkImageMemoryBarrier barrierToGen{};
+    barrierToGen.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrierToGen.oldLayout = m_giCurrentLayout;
+    barrierToGen.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrierToGen.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrierToGen.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrierToGen.image = m_giImage;
+    barrierToGen.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrierToGen.subresourceRange.baseMipLevel = 0;
+    barrierToGen.subresourceRange.levelCount = 1;
+    barrierToGen.subresourceRange.baseArrayLayer = 0;
+    barrierToGen.subresourceRange.layerCount = 1;
+    barrierToGen.srcAccessMask = (m_giCurrentLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) ? VK_ACCESS_SHADER_READ_BIT : 0;
+    barrierToGen.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+
+    VkPipelineStageFlags srcStage = (m_giCurrentLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+        : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+    vkCmdPipelineBarrier(
+        cmd,
+        srcStage,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        0, nullptr,
+        0, nullptr,
+        1, &barrierToGen
+    );
+    m_giCurrentLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    // 2. Bind Compute Pipeline & Descriptor Set
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_giComputePipeline->getHandle());
+    vkCmdBindDescriptorSets(
+        cmd,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        m_giComputePipeline->getLayout(),
+        0, 1, &m_giDescriptorSet,
+        0, nullptr
+    );
+
+    // 3. Push Constants
+    struct GIPushConstants {
+        glm::vec4 sunDir;         // xyz = normalized sun direction, w = windSpeed
+        glm::vec4 sunColor;       // rgb = sun radiance spectrum, w = blizzardFactor
+        glm::vec4 cameraPos;      // xyz = camera world pos, w = time
+        glm::vec4 cwmCenter;      // xy = Western Cwm center XZ (-12500.0, -8200.0), z = innerRadius (1800.0), w = outerRadius (3800.0)
+        uint32_t bounceIndex;      // 0..8
+        uint32_t totalBounces;     // 8
+        float minElev;         // 3651.0m
+        float maxElev;         // 8780.0m
+    } pc{};
+
+    glm::vec3 normSun = glm::normalize(sunDir);
+    pc.sunDir = glm::vec4(normSun, windSpeed);
+    pc.sunColor = glm::vec4(sunColor, blizzardFactor);
+    pc.cameraPos = glm::vec4(cameraPos, time);
+    pc.cwmCenter = glm::vec4(-12000.0f, -7600.0f, 2200.0f, 4500.0f);
+    pc.bounceIndex = 0;
+    pc.totalBounces = 8;
+    pc.minElev = m_minElevation;
+    pc.maxElev = m_maxElevation;
+
+    vkCmdPushConstants(
+        cmd,
+        m_giComputePipeline->getLayout(),
+        VK_SHADER_STAGE_COMPUTE_BIT,
+        0,
+        sizeof(GIPushConstants),
+        &pc
+    );
+
+    // 4. Dispatch Compute Workgroups (512 / 8 = 64)
+    uint32_t groupCount = GI_RES / 8;
+    vkCmdDispatch(cmd, groupCount, groupCount, 1);
+
+    // 5. Transition GI Image to SHADER_READ_ONLY_OPTIMAL for Rasterization Fragment Shaders
+    VkImageMemoryBarrier barrierToRead{};
+    barrierToRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrierToRead.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrierToRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrierToRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrierToRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrierToRead.image = m_giImage;
+    barrierToRead.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrierToRead.subresourceRange.baseMipLevel = 0;
+    barrierToRead.subresourceRange.levelCount = 1;
+    barrierToRead.subresourceRange.baseArrayLayer = 0;
+    barrierToRead.subresourceRange.layerCount = 1;
+    barrierToRead.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrierToRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(
+        cmd,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0,
+        0, nullptr,
+        0, nullptr,
+        1, &barrierToRead
+    );
+    m_giCurrentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+}
+
 void Renderer::initTexturesAndDescriptors() {
     VkDevice device = m_context->getDevice();
 
-    // 1. Create Descriptor Pool for textures (20 samplers) + postprocess/compute descriptors
+    // 1. Create Descriptor Pool for textures (21 samplers) + postprocess/compute descriptors
     std::vector<VkDescriptorPoolSize> poolSizes = {
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16}
     };
 
@@ -301,7 +518,7 @@ void Renderer::initTexturesAndDescriptors() {
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = 8;
+    poolInfo.maxSets = 16;
 
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create descriptor pool for textures!");
@@ -319,7 +536,7 @@ void Renderer::initTexturesAndDescriptors() {
         throw std::runtime_error("Failed to allocate terrain texture descriptor set!");
     }
 
-    // 3. Load all 20 texture maps (ESRI satellite, Macro Normal, Geomorphology, 4x ambientCG CC0 PBR sets, and DEM Float32)
+    // 3. Load all 21 texture maps (ESRI satellite, Macro Normal, Geomorphology, 4x ambientCG CC0 PBR sets, DEM Float32, and Multi-Bounce GI)
     struct TexDef {
         std::string path;
         bool isSrgb;
@@ -359,9 +576,10 @@ void Renderer::initTexturesAndDescriptors() {
         {DATA_DIR "/processed/everest_geomorphology.png", false, true}
     };
 
+    size_t totalTexCount = texDefs.size() + 2; // 19 PBR + DEM + MultiBounceGI = 21 textures
     m_textures.reserve(texDefs.size() + 1);
-    std::vector<VkDescriptorImageInfo> imageInfos(texDefs.size() + 1);
-    std::vector<VkWriteDescriptorSet> writes(texDefs.size() + 1);
+    std::vector<VkDescriptorImageInfo> imageInfos(totalTexCount);
+    std::vector<VkWriteDescriptorSet> writes(totalTexCount);
 
     std::cout << "[Renderer] Loading 19 PBR, Geomorphology & Satellite textures into GPU VRAM..." << std::endl;
     for (size_t i = 0; i < texDefs.size(); i++) {
@@ -421,8 +639,116 @@ void Renderer::initTexturesAndDescriptors() {
     writes[demIdx].pBufferInfo = nullptr;
     writes[demIdx].pTexelBufferView = nullptr;
 
+    // 20: Step 19 Hardware Ray-Traced Multi-Bounce GI Irradiance Texture (Western Cwm Glutofen)
+    size_t giIdx = demIdx + 1;
+    imageInfos[giIdx].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfos[giIdx].imageView = m_giImageView;
+    imageInfos[giIdx].sampler = m_giSampler;
+
+    writes[giIdx].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[giIdx].pNext = nullptr;
+    writes[giIdx].dstSet = m_descriptorSet;
+    writes[giIdx].dstBinding = static_cast<uint32_t>(giIdx);
+    writes[giIdx].dstArrayElement = 0;
+    writes[giIdx].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[giIdx].descriptorCount = 1;
+    writes[giIdx].pImageInfo = &imageInfos[giIdx];
+    writes[giIdx].pBufferInfo = nullptr;
+    writes[giIdx].pTexelBufferView = nullptr;
+
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-    std::cout << "[Renderer] Successfully bound all 20 textures (including 35-km DEM) to Descriptor Set." << std::endl;
+    std::cout << "[Renderer] Successfully bound all 21 textures (including 35-km DEM & Multi-Bounce GI) to Descriptor Set." << std::endl;
+
+    // 4. Create Multi-Bounce GI Compute Pipeline Descriptor Set & Pipeline
+    std::vector<VkDescriptorSetLayoutBinding> giBindings(4);
+    giBindings[0].binding = 0;
+    giBindings[0].descriptorCount = 1;
+    giBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    giBindings[0].pImmutableSamplers = nullptr;
+    giBindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    giBindings[1].binding = 1;
+    giBindings[1].descriptorCount = 1;
+    giBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    giBindings[1].pImmutableSamplers = nullptr;
+    giBindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    giBindings[2].binding = 2;
+    giBindings[2].descriptorCount = 1;
+    giBindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    giBindings[2].pImmutableSamplers = nullptr;
+    giBindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    giBindings[3].binding = 3;
+    giBindings[3].descriptorCount = 1;
+    giBindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    giBindings[3].pImmutableSamplers = nullptr;
+    giBindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo giLayoutInfo{};
+    giLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    giLayoutInfo.bindingCount = static_cast<uint32_t>(giBindings.size());
+    giLayoutInfo.pBindings = giBindings.data();
+    if (vkCreateDescriptorSetLayout(device, &giLayoutInfo, nullptr, &m_giDescriptorLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Multi-Bounce GI descriptor set layout!");
+    }
+
+    VkDescriptorSetAllocateInfo giAllocInfo{};
+    giAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    giAllocInfo.descriptorPool = m_descriptorPool;
+    giAllocInfo.descriptorSetCount = 1;
+    giAllocInfo.pSetLayouts = &m_giDescriptorLayout;
+    if (vkAllocateDescriptorSets(device, &giAllocInfo, &m_giDescriptorSet) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate Multi-Bounce GI descriptor set!");
+    }
+
+    VkDescriptorImageInfo demDescInfo = m_textures[19]->getDescriptorInfo();
+    VkDescriptorImageInfo morphDescInfo = m_textures[18]->getDescriptorInfo();
+    VkDescriptorImageInfo normDescInfo = m_textures[1]->getDescriptorInfo();
+
+    VkDescriptorImageInfo giStorageInfo{};
+    giStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    giStorageInfo.imageView = m_giImageView;
+    giStorageInfo.sampler = VK_NULL_HANDLE;
+
+    std::vector<VkWriteDescriptorSet> giWrites(4);
+    giWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    giWrites[0].dstSet = m_giDescriptorSet;
+    giWrites[0].dstBinding = 0;
+    giWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    giWrites[0].descriptorCount = 1;
+    giWrites[0].pImageInfo = &demDescInfo;
+
+    giWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    giWrites[1].dstSet = m_giDescriptorSet;
+    giWrites[1].dstBinding = 1;
+    giWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    giWrites[1].descriptorCount = 1;
+    giWrites[1].pImageInfo = &morphDescInfo;
+
+    giWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    giWrites[2].dstSet = m_giDescriptorSet;
+    giWrites[2].dstBinding = 2;
+    giWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    giWrites[2].descriptorCount = 1;
+    giWrites[2].pImageInfo = &normDescInfo;
+
+    giWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    giWrites[3].dstSet = m_giDescriptorSet;
+    giWrites[3].dstBinding = 3;
+    giWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    giWrites[3].descriptorCount = 1;
+    giWrites[3].pImageInfo = &giStorageInfo;
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(giWrites.size()), giWrites.data(), 0, nullptr);
+
+    m_giComputePipeline = std::make_unique<rhi::VulkanComputePipeline>(
+        *m_context,
+        SHADER_DIR "/multi_bounce_gi_comp.spv",
+        m_giDescriptorLayout,
+        sizeof(glm::vec4) * 4 + sizeof(uint32_t) * 2 + sizeof(float) * 2
+    );
+    std::cout << "[Renderer] Hardware Ray-Traced Multi-Bounce GI compute pipeline initialized." << std::endl;
 }
 
 void Renderer::initHdrAndPostprocessPipelines() {
@@ -1275,6 +1601,17 @@ void Renderer::renderFrame(
 
     // Step 18: Update dynamic boulder instances around camera
     updateBoulderInstances(camera.getPosition());
+
+    // Step 19: Hardware Ray-Traced Multi-Bounce GI ("Das Glutofen-Schneelicht")
+    dispatchMultiBounceGI(
+        cmd,
+        sunDir,
+        sunColor,
+        camera.getPosition(),
+        totalTime,
+        windSpeed,
+        blizzardFactor
+    );
 
     VkExtent2D extent = m_swapchain->getExtent();
 

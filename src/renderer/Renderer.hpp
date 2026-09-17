@@ -78,6 +78,30 @@ private:
     VkDescriptorSetLayout m_postprocessDescriptorLayout = VK_NULL_HANDLE;
     VkDescriptorSet m_postprocessDescriptorSet = VK_NULL_HANDLE;
 
+    // Step 19: Hardware Ray-Traced Multi-Bounce GI ("Das Glutofen-Schneelicht")
+    void initMultiBounceGI();
+    void cleanupMultiBounceGI();
+    void dispatchMultiBounceGI(
+        VkCommandBuffer cmd,
+        const glm::vec3& sunDir,
+        const glm::vec3& sunColor,
+        const glm::vec3& cameraPos,
+        float time,
+        float windSpeed,
+        float blizzardFactor
+    );
+
+    static constexpr uint32_t GI_RES = 512;
+    VkImage m_giImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_giImageMemory = VK_NULL_HANDLE;
+    VkImageView m_giImageView = VK_NULL_HANDLE;
+    VkSampler m_giSampler = VK_NULL_HANDLE;
+    VkImageLayout m_giCurrentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    std::unique_ptr<rhi::VulkanComputePipeline> m_giComputePipeline;
+    VkDescriptorSetLayout m_giDescriptorLayout = VK_NULL_HANDLE;
+    VkDescriptorSet m_giDescriptorSet = VK_NULL_HANDLE;
+
     float m_adaptedLuminance = 1.0f;
     float m_currentExposure = 1.0f;
     float m_targetLuminance = 1.0f;

@@ -44,6 +44,17 @@ public:
     VkCommandBuffer beginSingleTimeCommands() const;
     void endSingleTimeCommands(VkCommandBuffer commandBuffer) const;
 
+    [[nodiscard]] bool isRayTracingSupported() const { return m_rayTracingSupported; }
+    [[nodiscard]] VkDeviceAddress getBufferDeviceAddress(VkBuffer buffer) const;
+
+    // Hardware Ray Tracing (VK_KHR_acceleration_structure & VK_KHR_ray_query) Function Pointers
+    PFN_vkCreateAccelerationStructureKHR vkCreateAccelerationStructureKHR = nullptr;
+    PFN_vkDestroyAccelerationStructureKHR vkDestroyAccelerationStructureKHR = nullptr;
+    PFN_vkGetAccelerationStructureBuildSizesKHR vkGetAccelerationStructureBuildSizesKHR = nullptr;
+    PFN_vkCmdBuildAccelerationStructuresKHR vkCmdBuildAccelerationStructuresKHR = nullptr;
+    PFN_vkGetAccelerationStructureDeviceAddressKHR vkGetAccelerationStructureDeviceAddressKHR = nullptr;
+    PFN_vkGetBufferDeviceAddressKHR vkGetBufferDeviceAddressKHR = nullptr;
+
 private:
     void createInstance(const core::Window& window);
     void setupDebugMessenger();
@@ -68,6 +79,7 @@ private:
     QueueFamilyIndices m_queueIndices;
     std::string m_gpuName;
     bool m_enableValidationLayers = false;
+    bool m_rayTracingSupported = false;
 };
 
 } // namespace whiteout::rhi

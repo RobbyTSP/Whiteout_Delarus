@@ -267,12 +267,55 @@ void VulkanContext::createLogicalDevice() {
     features13.dynamicRendering = VK_TRUE;
     features13.synchronization2 = VK_TRUE;
 
-    VkPhysicalDeviceFeatures deviceFeatures{};
-    deviceFeatures.samplerAnisotropy = VK_TRUE;
+    // Check available device extensions
+    uint32_t extCount = 0;
+    vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extCount, nullptr);
+    std::vector<VkExtensionProperties> availableExts(extCount);
+    vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extCount, availableExts.data());
 
-    const std::vector<const char*> deviceExtensions = {
+    auto hasExt = [&](const char* name) {
+        for (const auto& e : availableExts) {
+            if (strcmp(e.extensionName, name) == 0) return true;
+        }
+        return false;
+    };
+
+    std::vector<const char*> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
+
+    bool hasRT = hasExt(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
+                hasExt(VK_KHR_RAY_QUERY_EXTENSION_NAME) &&
+                hasExt(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) &&
+                hasExt(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+
+    VkPhysicalDeviceVulkan12Features features12{};
+    features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{};
+    asFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+
+    VkPhysicalDeviceRayQueryFeaturesKHR rqFeatures{};
+    rqFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+
+    if (hasRT) {
+        deviceExtensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        deviceExtensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+        deviceExtensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+        deviceExtensions.push_back(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+
+        features12.bufferDeviceAddress = VK_TRUE;
+        asFeatures.accelerationStructure = VK_TRUE;
+        rqFeatures.rayQuery = VK_TRUE;
+
+        features13.pNext = &features12;
+        features12.pNext = &asFeatures;
+        asFeatures.pNext = &rqFeatures;
+        m_rayTracingSupported = true;
+    }
+
+    VkPhysicalDeviceFeatures deviceFeatures{};
+    deviceFeatures.samplerAnisotropy = VK_TRUE;
 
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -287,9 +330,27 @@ void VulkanContext::createLogicalDevice() {
         throw std::runtime_error("Failed to create logical Vulkan device!");
     }
 
+    if (m_rayTracingSupported) {
+        vkCreateAccelerationStructureKHR = (PFN_vkCreateAccelerationStructureKHR) vkGetDeviceProcAddr(m_device, "vkCreateAccelerationStructureKHR");
+        vkDestroyAccelerationStructureKHR = (PFN_vkDestroyAccelerationStructureKHR) vkGetDeviceProcAddr(m_device, "vkDestroyAccelerationStructureKHR");
+        vkGetAccelerationStructureBuildSizesKHR = (PFN_vkGetAccelerationStructureBuildSizesKHR) vkGetDeviceProcAddr(m_device, "vkGetAccelerationStructureBuildSizesKHR");
+        vkCmdBuildAccelerationStructuresKHR = (PFN_vkCmdBuildAccelerationStructuresKHR) vkGetDeviceProcAddr(m_device, "vkCmdBuildAccelerationStructuresKHR");
+        vkGetAccelerationStructureDeviceAddressKHR = (PFN_vkGetAccelerationStructureDeviceAddressKHR) vkGetDeviceProcAddr(m_device, "vkGetAccelerationStructureDeviceAddressKHR");
+        vkGetBufferDeviceAddressKHR = (PFN_vkGetBufferDeviceAddressKHR) vkGetDeviceProcAddr(m_device, "vkGetBufferDeviceAddressKHR");
+        std::cout << "[Vulkan] Hardware Ray Tracing initialized (VK_KHR_acceleration_structure & VK_KHR_ray_query)." << std::endl;
+    }
+
     vkGetDeviceQueue(m_device, m_queueIndices.graphicsFamily.value(), 0, &m_graphicsQueue);
     vkGetDeviceQueue(m_device, m_queueIndices.presentFamily.value(), 0, &m_presentQueue);
     std::cout << "[Vulkan] Logical Device and Queues initialized." << std::endl;
+}
+
+VkDeviceAddress VulkanContext::getBufferDeviceAddress(VkBuffer buffer) const {
+    if (!vkGetBufferDeviceAddressKHR || buffer == VK_NULL_HANDLE) return 0;
+    VkBufferDeviceAddressInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+    info.buffer = buffer;
+    return vkGetBufferDeviceAddressKHR(m_device, &info);
 }
 
 void VulkanContext::createCommandPool() {

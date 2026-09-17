@@ -780,9 +780,21 @@ Physikalisch exakte Modellierung der extremen Hochatmosphäre der Todeszone ($>7
   * Schlüsselstellen-Verifikation: Getestet und validiert an allen extremen Fixpunkten (Everest Base Camp 5.300m, Hillary Step 8.790m, Lhotse-Wand/Südsattel 8.338m und Third Step Felsturm 8.690m).
 
 ### 🌌 Phase B: Das absolute Maximum – Meilenweit voraus (Schritte 19–23)
-* [ ] **Schritt 19 (1:1 Part XVII): Hardware Ray-Traced Multi-Bounce GI (Das Western Cwm Phänomen):**
-  * Vulkan Hardware Ray Tracing (`VK_KHR_ray_tracing_pipeline` / ReSTIR GI).
-  * Bis zu 8 indirekte Licht-Bounces im 3.000 Meter tiefen Kar zwischen Everest, Lhotse und Nuptse: Das legendäre „Glutofen“-Schneelicht des Western Cwm, bei dem selbst tiefste Schatten gleißend weiß strahlen.
+* [x] **Schritt 19 (1:1 Part XVII): Hardware Ray-Traced Multi-Bounce GI (Das Western Cwm Phänomen & Glutofen-Schneelicht):**
+  * **Vulkan 1.3+ / 1.4 Hardware Ray Tracing & Device Address Pipeline:**
+    * Native Initialisierung von `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` und `VK_KHR_buffer_device_address` auf der NVIDIA GeForce RTX 4060.
+    * Automatisches Chaining von `VkPhysicalDeviceAccelerationStructureFeaturesKHR`, `VkPhysicalDeviceRayQueryFeaturesKHR` und `VkPhysicalDeviceVulkan12Features` im Logical Device Setup.
+  * **Compute-gestütztes Multi-Bounce Radiative Transfer (`shaders/multi_bounce_gi.slang`):**
+    * 8-Kompass-Azimut-Raymarching (in 45°-Intervallen) mit C1 Catmull-Rom DEM-Höhenabtastung und 4-stufigen Tiefen-Sonden (450m bis 3.800m) zur Erfassung der gegenüberliegenden 3.000m hohen Steilwände.
+    * Direkte Auswertung der Primär-Sonneneinstrahlung auf die Riesenwände von Mount Everest (Südwestwand), Lhotse-Wand und Nuptse mit exakter Hangneigung, Oberflächennormalen und DEM-Schattenwurf.
+    * Bis zu 8 iterative diffuse Strahlungstransfer-Bounces ($b=1 \dots 8$): Durch die extrem hohe Schnee-Albedo ($\rho \approx 0,95$) und die gewaltigen Raumwinkel der umschließenden Steilwände entsteht der optische Resonator des "Glutofens" (Western Cwm Kessel-Verstärkungsfaktor $> 400\%$).
+  * **16-Bit Half-Float Irradiance Map & Seamless PBR Descriptor Integration:**
+    * Dynamische $512 \times 512$ Textur im Format `VK_FORMAT_R16G16B16A16_SFLOAT` (`m_giImage`) für kontinuierliche, rauschfreie und artefaktfreie globale Beleuchtung im gesamten 35-km-Gebirgsmassiv.
+    * Nahtlose Bereitstellung an Bindung 20 (`texMultiBounceGI`) im gemeinsamen Descriptor-Set für Basis-Gelände ([`shaders/terrain.slang`](shaders/terrain.slang)), CDLOD-Mikro-Terrain ([`shaders/micro_terrain.slang`](shaders/micro_terrain.slang)) und Felsblock-Instanzen ([`shaders/boulder.slang`](shaders/boulder.slang)).
+    * In tiefen Kesseln und Karen des Western Cwm werden ehemals dunkle Bergschatten in das typische, blendend weiß-goldene diffuse Schneelicht getaucht, während enge Felsklüfte dank petrologischer Absorptionskopplung dunkel bleiben.
+  * **Preset 7: Western Cwm "Glutofen" (Camp 2, 6.400m):**
+    * Schnellreise via Taste `7` und CLI-Parameter `--preset 7` direkt auf den Gletscherboden von Camp 2 ($X = -11.800\text{m}, Z = -7.550\text{m}$, Höhe: $6.394\text{m}$) mit Blick die Western Cwm Schlucht hinauf zur Lhotse-Wand.
+    * Proximity-Erkennung und Telemetrie-Einblendung `[HOTSPOT: Western Cwm (6,400m) - Das Glutofen-Schneelicht GI]`.
 * [ ] **Schritt 20 (1:1 Part XVIII): Dynamische Schnee- & Lawinen-Physik (MPM - Material Point Method):**
   * GPU-basierte Material Point Method für nicht-Newtonschen Schnee: Harschkrusten brechen unter Steigeisen ein und hinterlassen verdichtete Trittspuren.
   * Aktiver Höhenwind verweht Schnee zu überhängenden Kantenwechten, die bei Betreten physikalisch abbrechen.

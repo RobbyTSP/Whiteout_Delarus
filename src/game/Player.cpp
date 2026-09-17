@@ -58,6 +58,13 @@ void Player::teleportToPreset(int preset) {
             m_pitch = 14.0f;
             m_currentLocationName = "Third Step Climbing Pinnacle (8,690m)";
             break;
+        case 7: // Western Cwm "Glutofen" Glacial Amphitheater (Camp 2, 6,400m)
+            m_position.x = -11800.0f;
+            m_position.z = -7550.0f;
+            m_yaw = 15.0f;
+            m_pitch = 18.0f;
+            m_currentLocationName = "Western Cwm 'Glutofen' (6,400m) - Multi-Bounce GI";
+            break;
         default:
             return;
     }
@@ -116,7 +123,7 @@ void Player::update(float deltaTime, const core::WindowEventState& input) {
         toggleMode();
     }
 
-    if (input.teleportPreset >= 1 && input.teleportPreset <= 6) {
+    if (input.teleportPreset >= 1 && input.teleportPreset <= 7) {
         teleportToPreset(input.teleportPreset);
     }
 
@@ -293,6 +300,7 @@ std::string Player::getTelemetryString() const {
         float dThird = glm::length(glm::vec2(m_position.x - (-8690.0f), m_position.z - (-7820.0f)));
         float dCol = glm::length(glm::vec2(m_position.x - (-7740.0f), m_position.z - (-4995.0f)));
         float dIcefall = glm::length(glm::vec2(m_position.x - (-13800.0f), m_position.z - (-8600.0f)));
+        float dCwm = glm::length(glm::vec2(m_position.x - (-11800.0f), m_position.z - (-7550.0f)));
 
         if (dHillary < 65.0f) {
             ss << " | [HOTSPOT: Hillary Step (8,790m) - 0.25m Kletterkanten]";
@@ -302,6 +310,8 @@ std::string Player::getTelemetryString() const {
             ss << " | [HOTSPOT: South Col (7,906m) - Xanthoria elegans Flechten]";
         } else if (dIcefall < 85.0f) {
             ss << " | [HOTSPOT: Khumbu Icefall - Séracs & Spalten]";
+        } else if (dCwm < 500.0f) {
+            ss << " | [HOTSPOT: Western Cwm (6,400m) - Das Glutofen-Schneelicht GI]";
         } else {
             ss << " | [CDLOD: 0.25m Kletter-Auflösung]";
         }
@@ -313,7 +323,7 @@ std::string Player::getTelemetryString() const {
            << "Far: 150km";
     }
 
-    ss << " | [Tab/V]: Mode | [1-6]: Teleport (1:BC, 2:Hillary, 3:SouthCol, 4:AmaDablam, 5:Icefall, 6:ThirdStep)";
+    ss << " | [Tab/V]: Mode | [1-7]: Teleport (1:BC, 2:Hillary, 3:SouthCol, 4:AmaDablam, 5:Icefall, 6:ThirdStep, 7:WesternCwm)";
     return ss.str();
 }
 

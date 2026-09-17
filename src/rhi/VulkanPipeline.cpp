@@ -169,9 +169,9 @@ VulkanPipeline::VulkanPipeline(
         m_descriptorSetLayout = externalDescriptorLayout;
         m_ownsDescriptorSetLayout = false;
     } else if (!isFullscreen) {
-        // 9. Descriptor Set Layout for 20 Texture Samplers (Satellite, Normal, Geomorphology, 4x PBR Sets, DEM Float32)
-        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(20);
-        for (uint32_t i = 0; i < 20; i++) {
+        // 9. Descriptor Set Layout for 21 Texture Samplers (Satellite, Normal, Geomorphology, 4x PBR Sets, DEM Float32, Multi-Bounce GI)
+        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(21);
+        for (uint32_t i = 0; i < 21; i++) {
             samplerBindings[i].binding = i;
             samplerBindings[i].descriptorCount = 1;
             samplerBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -353,9 +353,9 @@ VulkanPipeline::VulkanPipeline(
         m_descriptorSetLayout = externalDescriptorLayout;
         m_ownsDescriptorSetLayout = false;
     } else {
-        // 20 Texture Samplers layout
-        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(20);
-        for (uint32_t i = 0; i < 20; i++) {
+        // 21 Texture Samplers layout (including Step 19 texMultiBounceGI at binding 20)
+        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(21);
+        for (uint32_t i = 0; i < 21; i++) {
             samplerBindings[i].binding = i;
             samplerBindings[i].descriptorCount = 1;
             samplerBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

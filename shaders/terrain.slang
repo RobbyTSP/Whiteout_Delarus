@@ -59,6 +59,9 @@ ConstantBuffer<PushConstants> pc;
 // 19: 1024x1024 Float32 DEM Elevation Field (35-km Massif Cone-Tracing)
 [[vk::binding(19, 0)]] Sampler2D texElevationDEM;
 
+// 20: Step 19 Hardware Ray-Traced Multi-Bounce GI (Western Cwm "Glutofen" Snowlight Radiance)
+[[vk::binding(20, 0)]] Sampler2D texMultiBounceGI;
+
 struct VertexInput {
     float3 position : POSITION;
     float3 normal   : NORMAL;
@@ -829,8 +832,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float crossBounceFactor = clamp(-rawNdotL * 0.5 + 0.5, 0.0, 1.0);
     float3 crossPeakBounce = pc.sunColor.rgb * 0.09 * crossBounceFactor * pow(contactAO, 1.4) * earthShadow;
 
-    // Tiefes, sattes Schatten-Fundament (tiefe Schluchten werden dunkel!)
-    float3 totalAmbient = (skyLight + snowGroundBounce + crossPeakBounce);
+    // Step 19: Hardware Ray-Traced Multi-Bounce GI (The Western Cwm "Glutofen" Phenomenon)
+    float3 multiBounceGI = texMultiBounceGI.Sample(input.uv).rgb;
+
+    // Tiefes, sattes Schatten-Fundament ergänzt durch multi-bounce Schneelicht in Kesseln
+    float3 totalAmbient = (skyLight + snowGroundBounce + crossPeakBounce + multiBounceGI);
     totalAmbient = max(totalAmbient, float3(0.008, 0.010, 0.015) * contactAO);
 
     // Step 13 (1:1 Part XI): PBR Specular & Subsurface Scattering (Translucency)

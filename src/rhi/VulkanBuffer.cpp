@@ -30,6 +30,13 @@ VulkanBuffer::VulkanBuffer(const VulkanContext& context,
     allocInfo.allocationSize = memRequirements.size;
     allocInfo.memoryTypeIndex = m_context.findMemoryType(memRequirements.memoryTypeBits, properties);
 
+    VkMemoryAllocateFlagsInfo flagsInfo{};
+    if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
+        flagsInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+        flagsInfo.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+        allocInfo.pNext = &flagsInfo;
+    }
+
     if (vkAllocateMemory(device, &allocInfo, nullptr, &m_memory) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate buffer memory!");
     }

@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        if (initialPreset >= 1 && initialPreset <= 6) {
+        if (initialPreset >= 1 && initialPreset <= 7) {
             player.teleportToPreset(initialPreset);
         }
 
