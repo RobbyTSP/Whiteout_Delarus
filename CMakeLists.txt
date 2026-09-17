@@ -72,6 +72,10 @@ add_slang_shader("micro_terrain.slang" "fragment" "fragmentMain" "micro_terrain_
 add_slang_shader("boulder.slang" "vertex" "vertexMain" "boulder_vert.spv")
 add_slang_shader("boulder.slang" "fragment" "fragmentMain" "boulder_frag.spv")
 add_slang_shader("multi_bounce_gi.slang" "compute" "computeMain" "multi_bounce_gi_comp.spv")
+add_slang_shader("snow_physics.slang" "compute" "computeMain" "snow_physics_comp.spv")
+add_slang_shader("avalanche_physics.slang" "compute" "computeMain" "avalanche_physics_comp.spv")
+add_slang_shader("avalanche.slang" "vertex" "vertexMain" "avalanche_vert.spv")
+add_slang_shader("avalanche.slang" "fragment" "fragmentMain" "avalanche_frag.spv")
 
 add_custom_target(compile_shaders ALL DEPENDS ${SPV_TARGETS})
 

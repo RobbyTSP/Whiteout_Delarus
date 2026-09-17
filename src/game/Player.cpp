@@ -119,6 +119,8 @@ float Player::getOxygenSaturation() const {
 }
 
 void Player::update(float deltaTime, const core::WindowEventState& input) {
+    m_recentFootsteps.clear();
+
     if (input.toggleMode) {
         toggleMode();
     }
@@ -248,13 +250,50 @@ void Player::updateFirstPerson(float deltaTime, const core::WindowEventState& in
     float bobX = 0.0f;
     float bobY = 0.0f;
 
+    // Step 20: Elasto-Plastic Footstep Generation
+    glm::vec3 fwd = forward;
+
+    // Landing impact marks
+    if (!m_wasGrounded && m_isGrounded) {
+        float landDepth = input.sprint ? 0.20f : 0.14f;
+        SnowFootstep leftLand{}, rightLand{};
+        leftLand.posRadius = glm::vec4(m_position - right * 0.18f, 0.32f);
+        leftLand.posRadius.y = groundY;
+        leftLand.dirDepth = glm::vec4(fwd.x, fwd.z, landDepth, 0.95f);
+
+        rightLand.posRadius = glm::vec4(m_position + right * 0.18f, 0.32f);
+        rightLand.posRadius.y = groundY;
+        rightLand.dirDepth = glm::vec4(fwd.x, fwd.z, landDepth, 0.95f);
+
+        m_recentFootsteps.push_back(leftLand);
+        m_recentFootsteps.push_back(rightLand);
+    }
+    m_wasGrounded = m_isGrounded;
+
     if (m_isGrounded && speed > 0.3f) {
         m_walkCycle += deltaTime * speed * 2.2f;
         bobY = std::sin(m_walkCycle) * (input.sprint ? 0.06f : 0.035f);
         bobX = std::cos(m_walkCycle * 0.5f) * (input.sprint ? 0.035f : 0.02f);
         m_totalDistance += speed * deltaTime;
+
+        // Every half-stride (approx pi radians ~ 3.14159f) an alternating foot plants
+        if (m_walkCycle - m_lastStepCycle >= 3.14159f) {
+            m_lastStepCycle = m_walkCycle;
+            m_isLeftFoot = !m_isLeftFoot;
+
+            float sideOffset = m_isLeftFoot ? -0.16f : +0.16f;
+            glm::vec3 footPos = m_position + right * sideOffset + fwd * 0.12f;
+            footPos.y = m_collider.getHeight(footPos.x, footPos.z);
+
+            float stepDepth = input.sprint ? 0.15f : (input.crouch ? 0.04f : 0.09f);
+            SnowFootstep step{};
+            step.posRadius = glm::vec4(footPos, 0.28f);
+            step.dirDepth = glm::vec4(fwd.x, fwd.z, stepDepth, 0.88f);
+            m_recentFootsteps.push_back(step);
+        }
     } else {
         m_walkCycle = 0.0f;
+        m_lastStepCycle = 0.0f;
     }
 
     // 8. Update Camera transform

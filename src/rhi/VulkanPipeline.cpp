@@ -169,9 +169,9 @@ VulkanPipeline::VulkanPipeline(
         m_descriptorSetLayout = externalDescriptorLayout;
         m_ownsDescriptorSetLayout = false;
     } else if (!isFullscreen) {
-        // 9. Descriptor Set Layout for 21 Texture Samplers (Satellite, Normal, Geomorphology, 4x PBR Sets, DEM Float32, Multi-Bounce GI)
-        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(21);
-        for (uint32_t i = 0; i < 21; i++) {
+        // 9. Descriptor Set Layout for 22 Texture Samplers (Satellite, Normal, Geomorphology, 4x PBR Sets, DEM Float32, Multi-Bounce GI, Snow Deformation)
+        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(22);
+        for (uint32_t i = 0; i < 22; i++) {
             samplerBindings[i].binding = i;
             samplerBindings[i].descriptorCount = 1;
             samplerBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -256,7 +256,9 @@ VulkanPipeline::VulkanPipeline(
     const std::vector<VkVertexInputAttributeDescription>& attributeDescriptions,
     VkDescriptorSetLayout externalDescriptorLayout,
     uint32_t pushConstantSize,
-    VkCullModeFlags cullMode
+    VkCullModeFlags cullMode,
+    bool enableAlphaBlend,
+    bool depthWrite
 ) : m_context(context) {
     VkDevice device = m_context.getDevice();
 
@@ -330,7 +332,7 @@ VulkanPipeline::VulkanPipeline(
     depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     bool hasDepth = (depthFormat != VK_FORMAT_UNDEFINED);
     depthStencil.depthTestEnable = hasDepth ? VK_TRUE : VK_FALSE;
-    depthStencil.depthWriteEnable = hasDepth ? VK_TRUE : VK_FALSE;
+    depthStencil.depthWriteEnable = (hasDepth && depthWrite) ? VK_TRUE : VK_FALSE;
     depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable = VK_FALSE;
@@ -341,7 +343,17 @@ VulkanPipeline::VulkanPipeline(
                                           VK_COLOR_COMPONENT_G_BIT |
                                           VK_COLOR_COMPONENT_B_BIT |
                                           VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_FALSE;
+    if (enableAlphaBlend) {
+        colorBlendAttachment.blendEnable = VK_TRUE;
+        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    } else {
+        colorBlendAttachment.blendEnable = VK_FALSE;
+    }
 
     VkPipelineColorBlendStateCreateInfo colorBlending{};
     colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -353,9 +365,9 @@ VulkanPipeline::VulkanPipeline(
         m_descriptorSetLayout = externalDescriptorLayout;
         m_ownsDescriptorSetLayout = false;
     } else {
-        // 21 Texture Samplers layout (including Step 19 texMultiBounceGI at binding 20)
-        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(21);
-        for (uint32_t i = 0; i < 21; i++) {
+        // 22 Texture Samplers layout (including Step 19 texMultiBounceGI & Step 20 texSnowDeformation)
+        std::vector<VkDescriptorSetLayoutBinding> samplerBindings(22);
+        for (uint32_t i = 0; i < 22; i++) {
             samplerBindings[i].binding = i;
             samplerBindings[i].descriptorCount = 1;
             samplerBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

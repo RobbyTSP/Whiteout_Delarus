@@ -53,6 +53,7 @@ ConstantBuffer<PushConstants> pc;
 [[vk::binding(18, 0)]] Sampler2D texGeomorphology;
 [[vk::binding(19, 0)]] Sampler2D texElevationDEM;
 [[vk::binding(20, 0)]] Sampler2D texMultiBounceGI;
+[[vk::binding(21, 0)]] Sampler2D texSnowDeformation;
 
 struct VertexInput {
     [[vk::location(0)]] float3 position : POSITION;
@@ -166,7 +167,13 @@ VertexOutput vertexMain(VertexInput input) {
     float edgeMorph = smoothstep(32.0, 39.0, distCamXZ);
     float finalDisp = (microDisp + 0.02) * (1.0 - edgeMorph);
 
-    float finalY = baseElev + finalDisp;
+    // Step 20 Dynamic Snow Deformation (Elasto-plastic footstep indentation & rim)
+    float2 deformUV = worldXZ / 64.0;
+    float snowFade = 1.0 - smoothstep(28.0, 31.0, distCamXZ);
+    float4 deform = texSnowDeformation.SampleLevel(deformUV, 0.0);
+    float snowDeformY = (deform.r + deform.b) * (1.0 - edgeMorph) * snowFade;
+
+    float finalY = baseElev + finalDisp + snowDeformY;
     float3 finalWorldPos = float3(worldXZ.x, finalY, worldXZ.y);
 
     // 3. Analytical Micro-Normal Calculation via 2nd-Order Central Differences
@@ -361,11 +368,50 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         roughness = lerp(roughness, 0.92, screeMask);
     }
 
+    float snowCavityAO = 1.0;
+
     // Blend Snow
     if (snowPresence > 0.01) {
         float3 pureSnow = snowAlbedoSample.rgb * float3(0.96, 0.97, 1.0);
         albedo = lerp(albedo, pureSnow, snowPresence);
         roughness = lerp(roughness, clamp(snowRoughSample * 0.20 + 0.38, 0.35, 0.55), snowPresence);
+
+        // Step 20 Dynamic Snow Footprint Compaction & Rim Micro-Normal
+        float2 deformUV = input.worldPos.xz / 64.0;
+        float distCam = length(input.worldPos.xz - pc.cameraPos.xz);
+        float snowFade = 1.0 - smoothstep(28.0, 31.0, distCam);
+        float4 deform = texSnowDeformation.Sample(deformUV) * snowFade;
+
+        // Boot tread & raised rim gradient normal perturbation
+        if (abs(deform.r) > 0.001 || deform.b > 0.001) {
+            float dStep = 1.0 / 1024.0;
+            float hR = texSnowDeformation.Sample(deformUV + float2(dStep, 0.0)).r + texSnowDeformation.Sample(deformUV + float2(dStep, 0.0)).b;
+            float hL = texSnowDeformation.Sample(deformUV - float2(dStep, 0.0)).r + texSnowDeformation.Sample(deformUV - float2(dStep, 0.0)).b;
+            float hU = texSnowDeformation.Sample(deformUV + float2(0.0, dStep)).r + texSnowDeformation.Sample(deformUV + float2(0.0, dStep)).b;
+            float hD = texSnowDeformation.Sample(deformUV - float2(0.0, dStep)).r + texSnowDeformation.Sample(deformUV - float2(0.0, dStep)).b;
+            float2 slope = float2(hR - hL, hU - hD) / 0.125;
+            N = normalize(N - float3(slope.x, 0.0, slope.y) * snowPresence * snowFade * 1.6);
+
+            // Footstep cavity ambient occlusion (prevents depression washout in intense direct sun)
+            snowCavityAO = 1.0 - clamp(-deform.r * 6.5, 0.0, 0.75);
+        }
+
+        // Compaction hardening: firm, crystalline firn ice floor
+        if (deform.g > 0.02) {
+            float comp = deform.g * snowPresence;
+            float3 icyCompacted = float3(0.32, 0.55, 0.85); // High-contrast firn ice cyan-blue
+            albedo = lerp(albedo, icyCompacted, comp * 0.75);
+            roughness = lerp(roughness, 0.15, comp * 0.90); // Slick crystalline compaction glaze
+        }
+
+        // Raised displacement rim (fresh loose unconsolidated snow berm)
+        if (deform.b > 0.002) {
+            float rimFactor = clamp(deform.b * 16.0, 0.0, 0.65) * snowPresence;
+            albedo = lerp(albedo, float3(1.0, 1.0, 1.0) * 1.30, rimFactor);
+            roughness = lerp(roughness, 0.65, rimFactor);
+        }
+
+        albedo *= snowCavityAO;
     }
 
     // =========================================================================
@@ -418,7 +464,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float shadow = evaluateConeTracingShadows(input.worldPos, L);
     float sunVisibility = shadow * earthShadow;
 
-    float contactAO = geomMorph.a * 0.45 + 0.55;
+    float contactAO = (geomMorph.a * 0.45 + 0.55) * snowCavityAO;
 
     // Direct Sun Radiance matching base terrain exactly
     float3 directLight = albedo * pc.sunColor.rgb * NdotL * sunVisibility * (0.35 + 0.65 * contactAO) * (1.0 - pc.sunColor.w * 0.85);

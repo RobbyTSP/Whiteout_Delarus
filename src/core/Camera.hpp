@@ -16,6 +16,8 @@ public:
     [[nodiscard]] glm::mat4 getProjectionMatrix() const;
     [[nodiscard]] glm::vec3 getPosition() const { return m_position; }
     [[nodiscard]] glm::vec3 getForward() const { return m_forward; }
+    [[nodiscard]] glm::vec3 getRight() const { return m_right; }
+    [[nodiscard]] glm::vec3 getUp() const { return m_up; }
 
     void setPosition(const glm::vec3& pos) { m_position = pos; }
     void setLookAt(const glm::vec3& target);

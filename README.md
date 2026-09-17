@@ -795,10 +795,19 @@ Physikalisch exakte Modellierung der extremen Hochatmosphäre der Todeszone ($>7
   * **Preset 7: Western Cwm "Glutofen" (Camp 2, 6.400m):**
     * Schnellreise via Taste `7` und CLI-Parameter `--preset 7` direkt auf den Gletscherboden von Camp 2 ($X = -11.800\text{m}, Z = -7.550\text{m}$, Höhe: $6.394\text{m}$) mit Blick die Western Cwm Schlucht hinauf zur Lhotse-Wand.
     * Proximity-Erkennung und Telemetrie-Einblendung `[HOTSPOT: Western Cwm (6,400m) - Das Glutofen-Schneelicht GI]`.
-* [ ] **Schritt 20 (1:1 Part XVIII): Dynamische Schnee- & Lawinen-Physik (MPM - Material Point Method):**
-  * GPU-basierte Material Point Method für nicht-Newtonschen Schnee: Harschkrusten brechen unter Steigeisen ein und hinterlassen verdichtete Trittspuren.
-  * Aktiver Höhenwind verweht Schnee zu überhängenden Kantenwechten, die bei Betreten physikalisch abbrechen.
-  * Echtzeit-Staublawinen mit tosenden Pulverschneewolken von der Lhotse-Wand.
+* [x] **Schritt 20 (1:1 Part XVIII): Dynamische Schnee- & Lawinen-Physik (MPM - Material Point Method):**
+  * **Elasto-Plastische Schneedeformation & Steigeisen-Prägung (`shaders/snow_physics.slang`):**
+    * Rollender $64\text{ m} \times 64\text{ m}$ lokaler Toroidal-Puffer ($1024 \times 1024$, `VK_FORMAT_R16G16B16A16_SFLOAT`, $6,25\text{ cm}$ Texelauflösung) zentriert um die Kamera/Spielerposition.
+    * Nicht-Newtonsche elasto-plastische Verdrängungs- und Stanzphysik: Anatomisch differenzierte Bergschuhsohlen (Vorderfuß- vs. Fersenprofil), mikroskopische Steigeisen-Zackenrillen (`treadFluting`), Verdrängungswülste (aufgeworfene Schneeränder $\Delta h \approx +5\text{ cm}$) und kontinuierliche Spindrift-Windabtragung/Verwehung.
+    * Physikalische Verdichtungshärtung (Firneis-Sohle): In der Trittspur wird der Schnee komprimiert (`deform.g > 0.02`), wodurch er eine tiefblaue, firneisige Cyan-Albedo annimmt und die Oberflächenrauheit auf $0,15$ (glasig reflektierende Schmelz-/Druckglasur) abfällt.
+    * 3D-Geometrie- und Shading-Kopplung: Nahtlose Bindung an Slot 21 (`texSnowDeformation`) in [`shaders/terrain.slang`](shaders/terrain.slang), [`shaders/micro_terrain.slang`](shaders/micro_terrain.slang) und [`shaders/boulder.slang`](shaders/boulder.slang). Micro-Normalen-Gradientenreorientierung, Tiefen-Kavitäts-Okklusion (Cavity AO gegen Überstrahlung im gleißenden Sonnenlicht) und Vertex-Displacement ohne Z-Fighting oder Tiefenokklusion durch das Makro-Terrain.
+  * **Echtzeit-GPU-Staublawinen-Physik auf der Lhotse-Wand (`shaders/avalanche_physics.slang` & `shaders/avalanche.slang`):**
+    * 8.192 physikalische Partikel in einem GPU-Structured-Buffer, simuliert über Compute-Shader mit echten Bewegungsgleichungen: Gravitationsbeschleunigung, aerodynamischer Luftwiderstand, turbulente Wirbelstärken (Vorticity) und elastisch-plastische DEM-Geländeablenkung entlang der 50°-Falllinie.
+    * 1.100 Meter Höhendifferenz: Von der Bruchkante der Lhotse-Wand ($7.450\text{ m}$) bis in den Kesselboden des Western Cwm ($6.420\text{ m}$) stürzen tosende Staublawinen mit progressiver Chute-Verteilung und kontinuierlicher Neuentfachung.
+    * Volumetrisches Billboard-Rendering: Sphärische Kamera-Billboard-Basis, Mie-Vorwärtsstreuung (`phaseMie`) des stratosphärischen Sonnenlichts, sanfte radiale Dichteprofile (`pow(1.0 - rSq, 2.0)`) und weiche Alphamischung ohne Frustum- oder Geometrieschneideartefakte.
+  * **Interaktive Steuerung & CLI-Optionen:**
+    * Auslösung der Lhotse-Staublawine im laufenden Spiel per Taste `K` oder über den CLI-Startparameter `--avalanche`.
+    * Automatische Schritt-Aufzeichnung beim Gehen, Sprinten und Landen aus Sprüngen mit physikalischem Aufprall-Doppelabdruck.
 * [ ] **Schritt 21 (1:1 Part XIX): 3D Gaussian Splatting Photogrammetrie-Hotspots:**
   * Direkte Integration von 3D Gaussian Splats in die Vulkan-Pipeline für den Hillary Step, das Gipfelplateau mit Gebetsfahnen und den Südsattel.
   * Fotorealismus in 8K Ground-Truth bis auf wenige Millimeter Betrachtungsabstand.

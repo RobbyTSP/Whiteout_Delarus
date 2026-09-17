@@ -33,6 +33,14 @@ public:
     [[nodiscard]] const AlpineGeologyInfo& getGeologyInfo() const { return m_currentGeology; }
     [[nodiscard]] std::string getTelemetryString() const;
 
+    // Step 20: Elasto-Plastic MPM Deformable Snow & Footstep Stamp Tracking
+    struct SnowFootstep {
+        glm::vec4 posRadius; // xyz = world pos, w = radius / length (m)
+        glm::vec4 dirDepth;  // xy = normalized dir (cos/sin yaw), z = indentation depth (m), w = compaction (0..1)
+    };
+    [[nodiscard]] const std::vector<SnowFootstep>& getRecentFootsteps() const { return m_recentFootsteps; }
+    void clearRecentFootsteps() { m_recentFootsteps.clear(); }
+
 private:
     void updateFirstPerson(float deltaTime, const core::WindowEventState& input);
     void updateFreeFlight(float deltaTime, const core::WindowEventState& input);
@@ -71,6 +79,12 @@ private:
     // Stats
     float m_totalDistance = 0.0f;
     std::string m_currentLocationName = "Everest Base Camp";
+
+    // Step 20: Footstep physics & stride state
+    float m_lastStepCycle = 0.0f;
+    bool m_isLeftFoot = false;
+    bool m_wasGrounded = true;
+    std::vector<SnowFootstep> m_recentFootsteps;
 };
 
 } // namespace whiteout::game

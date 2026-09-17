@@ -101,7 +101,9 @@ Renderer::Renderer(core::Window& window)
     createCommandBuffers();
     initSyncObjects();
     initMultiBounceGI();
+    initSnowPhysics();
     initTexturesAndDescriptors();
+    initAvalanche();
     initHdrAndPostprocessPipelines();
 
     // Try loading Everest DEM data from Step 1; fallback to high-altitude procedural fractal terrain
@@ -128,6 +130,10 @@ Renderer::~Renderer() {
     m_adaptPipeline.reset();
     m_postprocessPipeline.reset();
     m_giComputePipeline.reset();
+    m_snowComputePipeline.reset();
+    m_avalancheComputePipeline.reset();
+    m_avalancheRenderPipeline.reset();
+    m_avalancheParticleBuffer.reset();
     m_histogramBuffer.reset();
     m_exposureBuffer.reset();
     m_microPipeline.reset();
@@ -138,6 +144,8 @@ Renderer::~Renderer() {
     m_boulderIndexBuffer.reset();
     m_boulderInstanceBuffer.reset();
 
+    cleanupSnowPhysics();
+    cleanupAvalanche();
     cleanupMultiBounceGI();
 
     if (m_histogramDescriptorLayout != VK_NULL_HANDLE) {
@@ -504,21 +512,569 @@ void Renderer::dispatchMultiBounceGI(
     m_giCurrentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
+void Renderer::queueFootstep(const glm::vec4& posRadius, const glm::vec4& dirDepth) {
+    m_queuedFootsteps.push_back({posRadius, dirDepth});
+}
+
+void Renderer::triggerAvalanche() {
+    m_avalancheActive = true;
+    m_avalancheTimer = 0.0f;
+    std::cout << "[Renderer] Powder Avalanche triggered on Lhotse Face! 8,192 physical particles descending." << std::endl;
+}
+
+void Renderer::initSnowPhysics() {
+    VkDevice device = m_context->getDevice();
+
+    // 1. Create 1024x1024 RGBA16F Image
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = SNOW_DEFORM_RES;
+    imageInfo.extent.height = SNOW_DEFORM_RES;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+
+    if (vkCreateImage(device, &imageInfo, nullptr, &m_snowDeformImage) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create snow deformation image!");
+    }
+
+    VkMemoryRequirements memReqs;
+    vkGetImageMemoryRequirements(device, m_snowDeformImage, &memReqs);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReqs.size;
+    allocInfo.memoryTypeIndex = m_context->findMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &m_snowDeformImageMemory) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate snow deformation image memory!");
+    }
+
+    vkBindImageMemory(device, m_snowDeformImage, m_snowDeformImageMemory, 0);
+
+    // 2. Create Image View
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = m_snowDeformImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device, &viewInfo, nullptr, &m_snowDeformImageView) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create snow deformation image view!");
+    }
+
+    // 3. Create Toroidal Wrapping Sampler (Linear filtering, repeat wrap)
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.mipLodBias = 0.0f;
+    samplerInfo.maxAnisotropy = 1.0f;
+    samplerInfo.compareOp = VK_COMPARE_OP_NEVER;
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxLod = 1.0f;
+
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &m_snowDeformSampler) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create snow deformation sampler!");
+    }
+
+    // 4. Initial layout transition to GENERAL and clear image to zero
+    {
+        VkCommandBuffer cmd = m_context->beginSingleTimeCommands();
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = m_snowDeformImage;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        VkClearColorValue clearVal{};
+        clearVal.float32[0] = 0.0f;
+        clearVal.float32[1] = 0.0f;
+        clearVal.float32[2] = 0.0f;
+        clearVal.float32[3] = 0.0f;
+        VkImageSubresourceRange range{};
+        range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        range.baseMipLevel = 0;
+        range.levelCount = 1;
+        range.baseArrayLayer = 0;
+        range.layerCount = 1;
+
+        vkCmdClearColorImage(cmd, m_snowDeformImage, VK_IMAGE_LAYOUT_GENERAL, &clearVal, 1, &range);
+
+        m_context->endSingleTimeCommands(cmd);
+        m_snowCurrentLayout = VK_IMAGE_LAYOUT_GENERAL;
+    }
+}
+
+void Renderer::cleanupSnowPhysics() {
+    VkDevice device = m_context->getDevice();
+    if (m_snowDeformImageView != VK_NULL_HANDLE) {
+        vkDestroyImageView(device, m_snowDeformImageView, nullptr);
+        m_snowDeformImageView = VK_NULL_HANDLE;
+    }
+    if (m_snowDeformImage != VK_NULL_HANDLE) {
+        vkDestroyImage(device, m_snowDeformImage, nullptr);
+        m_snowDeformImage = VK_NULL_HANDLE;
+    }
+    if (m_snowDeformImageMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, m_snowDeformImageMemory, nullptr);
+        m_snowDeformImageMemory = VK_NULL_HANDLE;
+    }
+    if (m_snowDeformSampler != VK_NULL_HANDLE) {
+        vkDestroySampler(device, m_snowDeformSampler, nullptr);
+        m_snowDeformSampler = VK_NULL_HANDLE;
+    }
+    if (m_snowDescriptorLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_snowDescriptorLayout, nullptr);
+        m_snowDescriptorLayout = VK_NULL_HANDLE;
+    }
+}
+
+void Renderer::dispatchSnowPhysics(
+    VkCommandBuffer cmd,
+    const glm::vec3& cameraPos,
+    float totalTime,
+    float deltaTime,
+    const glm::vec3& windDir,
+    float windSpeed,
+    float blizzardFactor
+) {
+    (void)totalTime;
+    if (!m_snowComputePipeline || m_snowDescriptorSet == VK_NULL_HANDLE) return;
+
+    // 1. Transition Snow Deformation Image to GENERAL for Compute Read/Write
+    VkImageMemoryBarrier barrierToGen{};
+    barrierToGen.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrierToGen.oldLayout = m_snowCurrentLayout;
+    barrierToGen.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrierToGen.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrierToGen.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrierToGen.image = m_snowDeformImage;
+    barrierToGen.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrierToGen.subresourceRange.baseMipLevel = 0;
+    barrierToGen.subresourceRange.levelCount = 1;
+    barrierToGen.subresourceRange.baseArrayLayer = 0;
+    barrierToGen.subresourceRange.layerCount = 1;
+    barrierToGen.srcAccessMask = (m_snowCurrentLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) ? VK_ACCESS_SHADER_READ_BIT : 0;
+    barrierToGen.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+
+    VkPipelineStageFlags srcStage = (m_snowCurrentLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        ? (VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
+        : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+    vkCmdPipelineBarrier(
+        cmd,
+        srcStage,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        0, nullptr,
+        0, nullptr,
+        1, &barrierToGen
+    );
+    m_snowCurrentLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    // 2. Bind Compute Pipeline & Descriptor Set
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_snowComputePipeline->getHandle());
+    vkCmdBindDescriptorSets(
+        cmd,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        m_snowComputePipeline->getLayout(),
+        0, 1, &m_snowDescriptorSet,
+        0, nullptr
+    );
+
+    // 3. Fill Push Constants
+    struct FootstepImpulse {
+        glm::vec4 posRadius;
+        glm::vec4 dirDepth;
+    };
+    struct SnowPhysicsPushConstants {
+        glm::vec4 snowCenterSpan; // xy = center XZ, z = span (64.0m), w = deltaTime
+        glm::vec4 windParams;     // xy = wind direction * windSpeed, z = blizzardFactor, w = footstepCount
+        FootstepImpulse footsteps[4];
+    } pc{};
+
+    pc.snowCenterSpan = glm::vec4(cameraPos.x, cameraPos.z, 64.0f, deltaTime);
+    glm::vec2 windDir2D = glm::normalize(glm::vec2(windDir.x, windDir.z) + glm::vec2(0.001f, 0.0f));
+    uint32_t stepCount = std::min(static_cast<uint32_t>(m_queuedFootsteps.size()), 4u);
+    pc.windParams = glm::vec4(windDir2D * windSpeed, blizzardFactor, static_cast<float>(stepCount));
+
+    for (uint32_t i = 0; i < stepCount; i++) {
+        pc.footsteps[i].posRadius = m_queuedFootsteps[i].posRadius;
+        pc.footsteps[i].dirDepth = m_queuedFootsteps[i].dirDepth;
+    }
+    m_queuedFootsteps.clear();
+
+    vkCmdPushConstants(
+        cmd,
+        m_snowComputePipeline->getLayout(),
+        VK_SHADER_STAGE_COMPUTE_BIT,
+        0,
+        sizeof(SnowPhysicsPushConstants),
+        &pc
+    );
+
+    // 4. Dispatch Compute Workgroups (1024 / 8 = 128)
+    uint32_t groupCount = SNOW_DEFORM_RES / 8;
+    vkCmdDispatch(cmd, groupCount, groupCount, 1);
+
+    // 5. Transition to SHADER_READ_ONLY_OPTIMAL for Terrain/Micro-Terrain Rasterization
+    VkImageMemoryBarrier barrierToRead{};
+    barrierToRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrierToRead.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrierToRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrierToRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrierToRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrierToRead.image = m_snowDeformImage;
+    barrierToRead.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrierToRead.subresourceRange.baseMipLevel = 0;
+    barrierToRead.subresourceRange.levelCount = 1;
+    barrierToRead.subresourceRange.baseArrayLayer = 0;
+    barrierToRead.subresourceRange.layerCount = 1;
+    barrierToRead.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrierToRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(
+        cmd,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0,
+        0, nullptr,
+        0, nullptr,
+        1, &barrierToRead
+    );
+    m_snowCurrentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+}
+
+void Renderer::initAvalanche() {
+    VkDevice device = m_context->getDevice();
+
+    // 1. Create Avalanche Particle Structured Buffer (8192 particles * 48 bytes = 393,216 bytes)
+    struct AvalancheParticle {
+        glm::vec4 posRadius;  // xyz = world pos, w = radius (m)
+        glm::vec4 velLife;    // xyz = velocity (m/s), w = life (0..1)
+        glm::vec4 params;     // x = density, y = vorticity spin, z = turbulence, w = active flag
+    };
+
+    VkDeviceSize bufferSize = AVALANCHE_PARTICLE_COUNT * sizeof(AvalancheParticle);
+    m_avalancheParticleBuffer = std::make_unique<rhi::VulkanBuffer>(
+        *m_context,
+        bufferSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+
+    // Zero-initialize particle buffer via single time command
+    {
+        VkCommandBuffer cmd = m_context->beginSingleTimeCommands();
+        vkCmdFillBuffer(cmd, m_avalancheParticleBuffer->getHandle(), 0, bufferSize, 0);
+        m_context->endSingleTimeCommands(cmd);
+    }
+
+    // 2. Compute Descriptor Set Layout:
+    // Binding 0: texElevationDEM (COMBINED_IMAGE_SAMPLER)
+    // Binding 1: bufParticles (STORAGE_BUFFER)
+    std::vector<VkDescriptorSetLayoutBinding> compBindings(2);
+    compBindings[0].binding = 0;
+    compBindings[0].descriptorCount = 1;
+    compBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    compBindings[0].pImmutableSamplers = nullptr;
+    compBindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    compBindings[1].binding = 1;
+    compBindings[1].descriptorCount = 1;
+    compBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    compBindings[1].pImmutableSamplers = nullptr;
+    compBindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo compLayoutInfo{};
+    compLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    compLayoutInfo.bindingCount = static_cast<uint32_t>(compBindings.size());
+    compLayoutInfo.pBindings = compBindings.data();
+    if (vkCreateDescriptorSetLayout(device, &compLayoutInfo, nullptr, &m_avalancheComputeLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create avalanche compute descriptor set layout!");
+    }
+
+    VkDescriptorSetAllocateInfo compAllocInfo{};
+    compAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    compAllocInfo.descriptorPool = m_descriptorPool;
+    compAllocInfo.descriptorSetCount = 1;
+    compAllocInfo.pSetLayouts = &m_avalancheComputeLayout;
+    if (vkAllocateDescriptorSets(device, &compAllocInfo, &m_avalancheComputeSet) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate avalanche compute descriptor set!");
+    }
+
+    VkDescriptorImageInfo demDescInfo = m_textures[19]->getDescriptorInfo();
+    VkDescriptorBufferInfo particleBufferInfo{};
+    particleBufferInfo.buffer = m_avalancheParticleBuffer->getHandle();
+    particleBufferInfo.offset = 0;
+    particleBufferInfo.range = bufferSize;
+
+    std::vector<VkWriteDescriptorSet> compWrites(2);
+    compWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    compWrites[0].dstSet = m_avalancheComputeSet;
+    compWrites[0].dstBinding = 0;
+    compWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    compWrites[0].descriptorCount = 1;
+    compWrites[0].pImageInfo = &demDescInfo;
+
+    compWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    compWrites[1].dstSet = m_avalancheComputeSet;
+    compWrites[1].dstBinding = 1;
+    compWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    compWrites[1].descriptorCount = 1;
+    compWrites[1].pBufferInfo = &particleBufferInfo;
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(compWrites.size()), compWrites.data(), 0, nullptr);
+
+    m_avalancheComputePipeline = std::make_unique<rhi::VulkanComputePipeline>(
+        *m_context,
+        SHADER_DIR "/avalanche_physics_comp.spv",
+        m_avalancheComputeLayout,
+        sizeof(glm::vec4) * 2 + sizeof(float) * 3 + sizeof(uint32_t)
+    );
+
+    // 3. Render Descriptor Set Layout:
+    // Binding 0: bufParticles (STORAGE_BUFFER)
+    std::vector<VkDescriptorSetLayoutBinding> renderBindings(1);
+    renderBindings[0].binding = 0;
+    renderBindings[0].descriptorCount = 1;
+    renderBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    renderBindings[0].pImmutableSamplers = nullptr;
+    renderBindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo renderLayoutInfo{};
+    renderLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    renderLayoutInfo.bindingCount = static_cast<uint32_t>(renderBindings.size());
+    renderLayoutInfo.pBindings = renderBindings.data();
+    if (vkCreateDescriptorSetLayout(device, &renderLayoutInfo, nullptr, &m_avalancheRenderLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create avalanche render descriptor set layout!");
+    }
+
+    VkDescriptorSetAllocateInfo renderAllocInfo{};
+    renderAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    renderAllocInfo.descriptorPool = m_descriptorPool;
+    renderAllocInfo.descriptorSetCount = 1;
+    renderAllocInfo.pSetLayouts = &m_avalancheRenderLayout;
+    if (vkAllocateDescriptorSets(device, &renderAllocInfo, &m_avalancheRenderSet) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate avalanche render descriptor set!");
+    }
+
+    VkWriteDescriptorSet renderWrite{};
+    renderWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    renderWrite.dstSet = m_avalancheRenderSet;
+    renderWrite.dstBinding = 0;
+    renderWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    renderWrite.descriptorCount = 1;
+    renderWrite.pBufferInfo = &particleBufferInfo;
+
+    vkUpdateDescriptorSets(device, 1, &renderWrite, 0, nullptr);
+
+    // 4. Create Graphics Pipeline for Billboard Avalanche Rendering
+    std::vector<VkVertexInputBindingDescription> emptyBindings;
+    std::vector<VkVertexInputAttributeDescription> emptyAttribs;
+
+    uint32_t renderPushSize = sizeof(glm::mat4) * 2 + sizeof(glm::vec4) * 3;
+
+    m_avalancheRenderPipeline = std::make_unique<rhi::VulkanPipeline>(
+        *m_context,
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        m_swapchain->getDepthFormat(),
+        SHADER_DIR "/avalanche_vert.spv",
+        SHADER_DIR "/avalanche_frag.spv",
+        emptyBindings,
+        emptyAttribs,
+        m_avalancheRenderLayout,
+        renderPushSize,
+        VK_CULL_MODE_NONE,
+        true,  // enableAlphaBlend
+        false  // depthWrite = false
+    );
+
+    std::cout << "[Renderer] GPU Powder Avalanche physics & volumetric billboard render pipelines initialized." << std::endl;
+}
+
+void Renderer::cleanupAvalanche() {
+    VkDevice device = m_context->getDevice();
+    if (m_avalancheComputeLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_avalancheComputeLayout, nullptr);
+        m_avalancheComputeLayout = VK_NULL_HANDLE;
+    }
+    if (m_avalancheRenderLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_avalancheRenderLayout, nullptr);
+        m_avalancheRenderLayout = VK_NULL_HANDLE;
+    }
+}
+
+void Renderer::dispatchAvalanche(
+    VkCommandBuffer cmd,
+    float deltaTime,
+    float totalTime,
+    const glm::vec3& windDir,
+    float windSpeed,
+    float blizzardFactor
+) {
+    if (!m_avalancheComputePipeline || m_avalancheComputeSet == VK_NULL_HANDLE || !m_avalancheParticleBuffer) return;
+
+    if (m_avalancheActive) {
+        m_avalancheTimer += deltaTime;
+        if (m_avalancheTimer > 30.0f) {
+            m_avalancheActive = false;
+        }
+    }
+
+    float triggerVal = (m_avalancheActive && m_avalancheTimer < 14.0f) ? 1.0f : 0.0f;
+
+    struct AvalanchePushConstants {
+        glm::vec4 originTrigger; // xyz = avalanche release point, w = triggerActive (1.0 or 0.0)
+        glm::vec4 windDirSpeed;  // xyz = normalized wind direction, w = windSpeed (km/h)
+        float deltaTime;
+        float totalTime;
+        uint32_t particleCount;  // 8192
+        float blastFactor;       // 0..1 whiteout blast intensity
+    } pc{};
+
+    // Lhotse Face Couloir Fracture line: (-9750.0m, 7450.0m, -7600.0m)
+    pc.originTrigger = glm::vec4(-9750.0f, 7450.0f, -7600.0f, triggerVal);
+    glm::vec3 normWind = glm::normalize(windDir);
+    pc.windDirSpeed = glm::vec4(normWind, windSpeed);
+    pc.deltaTime = deltaTime;
+    pc.totalTime = totalTime;
+    pc.particleCount = AVALANCHE_PARTICLE_COUNT;
+    pc.blastFactor = blizzardFactor;
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_avalancheComputePipeline->getHandle());
+    vkCmdBindDescriptorSets(
+        cmd,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        m_avalancheComputePipeline->getLayout(),
+        0, 1, &m_avalancheComputeSet,
+        0, nullptr
+    );
+
+    vkCmdPushConstants(
+        cmd,
+        m_avalancheComputePipeline->getLayout(),
+        VK_SHADER_STAGE_COMPUTE_BIT,
+        0,
+        sizeof(AvalanchePushConstants),
+        &pc
+    );
+
+    // Dispatch 8,192 particles with 64 threads per workgroup = 128 workgroups
+    vkCmdDispatch(cmd, AVALANCHE_PARTICLE_COUNT / 64, 1, 1);
+
+    // Barrier on particle buffer to synchronize compute writes with vertex reads in rasterization
+    VkBufferMemoryBarrier bufferBarrier{};
+    bufferBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    bufferBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    bufferBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    bufferBarrier.buffer = m_avalancheParticleBuffer->getHandle();
+    bufferBarrier.offset = 0;
+    bufferBarrier.size = VK_WHOLE_SIZE;
+
+    vkCmdPipelineBarrier(
+        cmd,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+        0,
+        0, nullptr,
+        1, &bufferBarrier,
+        0, nullptr
+    );
+}
+
+void Renderer::renderAvalanche(
+    VkCommandBuffer cmd,
+    const core::Camera& camera,
+    const glm::vec3& sunDir,
+    const glm::vec3& sunColor,
+    float blizzardFactor,
+    float totalTime
+) {
+    if (!m_avalancheRenderPipeline || m_avalancheRenderSet == VK_NULL_HANDLE || !m_avalancheParticleBuffer) return;
+
+    struct AvalancheRenderPushConstants {
+        glm::mat4 view;
+        glm::mat4 proj;
+        glm::vec4 cameraPos;   // xyz = camera pos, w = time
+        glm::vec4 sunDir;      // xyz = sun dir, w = blizzardFactor
+        glm::vec4 sunColor;    // rgb = sun color
+    } pc{};
+
+    pc.view = camera.getViewMatrix();
+    pc.proj = camera.getProjectionMatrix();
+    pc.cameraPos = glm::vec4(camera.getPosition(), totalTime);
+    pc.sunDir = glm::vec4(glm::normalize(sunDir), blizzardFactor);
+    pc.sunColor = glm::vec4(sunColor, 1.0f);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_avalancheRenderPipeline->getHandle());
+    vkCmdBindDescriptorSets(
+        cmd,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_avalancheRenderPipeline->getLayout(),
+        0, 1, &m_avalancheRenderSet,
+        0, nullptr
+    );
+
+    vkCmdPushConstants(
+        cmd,
+        m_avalancheRenderPipeline->getLayout(),
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        0,
+        sizeof(AvalancheRenderPushConstants),
+        &pc
+    );
+
+    // 6 vertices per quad, 8,192 particle instances
+    vkCmdDraw(cmd, 6, AVALANCHE_PARTICLE_COUNT, 0, 0);
+}
+
 void Renderer::initTexturesAndDescriptors() {
     VkDevice device = m_context->getDevice();
 
-    // 1. Create Descriptor Pool for textures (21 samplers) + postprocess/compute descriptors
+    // 1. Create Descriptor Pool for textures (22 samplers) + postprocess/compute descriptors
     std::vector<VkDescriptorPoolSize> poolSizes = {
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16}
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 32},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 32}
     };
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = 16;
+    poolInfo.maxSets = 32;
 
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create descriptor pool for textures!");
@@ -536,7 +1092,7 @@ void Renderer::initTexturesAndDescriptors() {
         throw std::runtime_error("Failed to allocate terrain texture descriptor set!");
     }
 
-    // 3. Load all 21 texture maps (ESRI satellite, Macro Normal, Geomorphology, 4x ambientCG CC0 PBR sets, DEM Float32, and Multi-Bounce GI)
+    // 3. Load all 22 texture maps (ESRI satellite, Macro Normal, Geomorphology, 4x ambientCG CC0 PBR sets, DEM Float32, Multi-Bounce GI, and Snow Deformation)
     struct TexDef {
         std::string path;
         bool isSrgb;
@@ -576,7 +1132,7 @@ void Renderer::initTexturesAndDescriptors() {
         {DATA_DIR "/processed/everest_geomorphology.png", false, true}
     };
 
-    size_t totalTexCount = texDefs.size() + 2; // 19 PBR + DEM + MultiBounceGI = 21 textures
+    size_t totalTexCount = texDefs.size() + 3; // 19 PBR + DEM + MultiBounceGI + SnowDeform = 22 textures
     m_textures.reserve(texDefs.size() + 1);
     std::vector<VkDescriptorImageInfo> imageInfos(totalTexCount);
     std::vector<VkWriteDescriptorSet> writes(totalTexCount);
@@ -656,8 +1212,25 @@ void Renderer::initTexturesAndDescriptors() {
     writes[giIdx].pBufferInfo = nullptr;
     writes[giIdx].pTexelBufferView = nullptr;
 
+    // 21: Step 20 Elasto-Plastic MPM Snow Deformation Map (Rolling 64m Footprints & Hardening)
+    size_t snowIdx = giIdx + 1;
+    imageInfos[snowIdx].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfos[snowIdx].imageView = m_snowDeformImageView;
+    imageInfos[snowIdx].sampler = m_snowDeformSampler;
+
+    writes[snowIdx].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[snowIdx].pNext = nullptr;
+    writes[snowIdx].dstSet = m_descriptorSet;
+    writes[snowIdx].dstBinding = static_cast<uint32_t>(snowIdx);
+    writes[snowIdx].dstArrayElement = 0;
+    writes[snowIdx].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[snowIdx].descriptorCount = 1;
+    writes[snowIdx].pImageInfo = &imageInfos[snowIdx];
+    writes[snowIdx].pBufferInfo = nullptr;
+    writes[snowIdx].pTexelBufferView = nullptr;
+
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-    std::cout << "[Renderer] Successfully bound all 21 textures (including 35-km DEM & Multi-Bounce GI) to Descriptor Set." << std::endl;
+    std::cout << "[Renderer] Successfully bound all 22 textures (including 35-km DEM, Multi-Bounce GI & Snow Deformation) to Descriptor Set." << std::endl;
 
     // 4. Create Multi-Bounce GI Compute Pipeline Descriptor Set & Pipeline
     std::vector<VkDescriptorSetLayoutBinding> giBindings(4);
@@ -749,6 +1322,54 @@ void Renderer::initTexturesAndDescriptors() {
         sizeof(glm::vec4) * 4 + sizeof(uint32_t) * 2 + sizeof(float) * 2
     );
     std::cout << "[Renderer] Hardware Ray-Traced Multi-Bounce GI compute pipeline initialized." << std::endl;
+
+    // 5. Create Snow Physics Compute Pipeline Descriptor Set & Pipeline
+    std::vector<VkDescriptorSetLayoutBinding> snowBindings(1);
+    snowBindings[0].binding = 0;
+    snowBindings[0].descriptorCount = 1;
+    snowBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    snowBindings[0].pImmutableSamplers = nullptr;
+    snowBindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo snowLayoutInfo{};
+    snowLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    snowLayoutInfo.bindingCount = static_cast<uint32_t>(snowBindings.size());
+    snowLayoutInfo.pBindings = snowBindings.data();
+    if (vkCreateDescriptorSetLayout(device, &snowLayoutInfo, nullptr, &m_snowDescriptorLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create snow deformation descriptor set layout!");
+    }
+
+    VkDescriptorSetAllocateInfo snowAllocInfo{};
+    snowAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    snowAllocInfo.descriptorPool = m_descriptorPool;
+    snowAllocInfo.descriptorSetCount = 1;
+    snowAllocInfo.pSetLayouts = &m_snowDescriptorLayout;
+    if (vkAllocateDescriptorSets(device, &snowAllocInfo, &m_snowDescriptorSet) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate snow deformation descriptor set!");
+    }
+
+    VkDescriptorImageInfo snowStorageInfo{};
+    snowStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    snowStorageInfo.imageView = m_snowDeformImageView;
+    snowStorageInfo.sampler = VK_NULL_HANDLE;
+
+    VkWriteDescriptorSet snowWrite{};
+    snowWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    snowWrite.dstSet = m_snowDescriptorSet;
+    snowWrite.dstBinding = 0;
+    snowWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    snowWrite.descriptorCount = 1;
+    snowWrite.pImageInfo = &snowStorageInfo;
+
+    vkUpdateDescriptorSets(device, 1, &snowWrite, 0, nullptr);
+
+    m_snowComputePipeline = std::make_unique<rhi::VulkanComputePipeline>(
+        *m_context,
+        SHADER_DIR "/snow_physics_comp.spv",
+        m_snowDescriptorLayout,
+        160 // sizeof(SnowPhysicsPushConstants)
+    );
+    std::cout << "[Renderer] Elasto-Plastic MPM Snow Physics compute pipeline initialized." << std::endl;
 }
 
 void Renderer::initHdrAndPostprocessPipelines() {
@@ -1613,6 +2234,27 @@ void Renderer::renderFrame(
         blizzardFactor
     );
 
+    // Step 20: Elasto-Plastic MPM Snow Physics (Footsteps, Indentation, Rim & Wind Drift)
+    dispatchSnowPhysics(
+        cmd,
+        camera.getPosition(),
+        totalTime,
+        deltaTime,
+        sunDir,
+        windSpeed,
+        blizzardFactor
+    );
+
+    // Step 20: Real-Time GPU Powder Avalanche Physics (8,192 Particles on Lhotse Face)
+    dispatchAvalanche(
+        cmd,
+        deltaTime,
+        totalTime,
+        glm::vec3(-1.0f, 0.0f, -0.2f),
+        windSpeed,
+        blizzardFactor
+    );
+
     VkExtent2D extent = m_swapchain->getExtent();
 
     // =========================================================================
@@ -1795,6 +2437,16 @@ void Renderer::renderFrame(
         vkCmdBindIndexBuffer(cmd, m_boulderIndexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, m_boulderIndexCount, m_boulderInstanceCount, 0, 0, 0);
     }
+
+    // Step 20: Render Volumetric Powder Avalanche Billows with Mie Forward Scattering
+    renderAvalanche(
+        cmd,
+        camera,
+        sunDir,
+        sunColor,
+        blizzardFactor,
+        totalTime
+    );
 
     vkCmdEndRendering(cmd);
 

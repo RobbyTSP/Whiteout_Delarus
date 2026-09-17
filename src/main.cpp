@@ -37,6 +37,7 @@ int main(int argc, char* argv[]) {
     std::cout << "   - T: Cycle Time of Day (Dawn Alpenglühen -> Noon -> Sunset -> Night)\n";
     std::cout << "   - B: Toggle Blizzard / Whiteout Mode (30m Visibility & Spindrift)\n";
     std::cout << "   - L: Toggle Live Open-Meteo Weather Synchronization\n";
+    std::cout << "   - K: Trigger GPU Powder Avalanche on Lhotse Face (8,192 particles)\n";
     std::cout << "   - ESC: Release mouse capture / Exit\n";
     std::cout << "=========================================================\n" << std::endl;
 
@@ -75,12 +76,15 @@ int main(int argc, char* argv[]) {
         bool hasCustomCam = false;
         glm::vec3 customCamPos(0.0f);
         float customYaw = 0.0f, customPitch = 0.0f;
+        bool triggerAvalancheOnStart = false;
 
         for (int i = 1; i < argc; i++) {
             if (std::string(argv[i]) == "--screenshot" || std::string(argv[i]) == "--headless-screenshot") {
                 screenshotPath = (i + 1 < argc) ? argv[i + 1] : "everest_step6.png";
             } else if (std::string(argv[i]) == "--preset" && i + 1 < argc) {
                 initialPreset = std::atoi(argv[i + 1]);
+            } else if (std::string(argv[i]) == "--avalanche") {
+                triggerAvalancheOnStart = true;
             } else if (std::string(argv[i]) == "--time" && i + 1 < argc) {
                 float t = static_cast<float>(std::atof(argv[i + 1]));
                 if (t >= 0.0f && t <= 4.0f && std::floor(t) == t) {
@@ -116,10 +120,37 @@ int main(int argc, char* argv[]) {
             camera.setLookAt(customCamPos + lookDir);
         }
 
+        if (triggerAvalancheOnStart) {
+            renderer.triggerAvalanche();
+        }
+
         if (!screenshotPath.empty()) {
             std::cout << "[Engine] Screenshot mode active: Rendering frame to " << screenshotPath
                       << " (Preset " << initialPreset << " | " << weatherSystem.getWeatherTelemetry() << ")" << std::endl;
-            for (int f = 0; f < 8; f++) {
+
+            // Step 20: Queue demonstration crampon footsteps in front of camera
+            glm::vec3 camPos = camera.getPosition();
+            glm::vec3 basePos = hasCustomCam ? camPos : player.getPosition();
+            glm::vec3 camFwd = camera.getForward();
+            glm::vec3 fwdH = glm::vec3(camFwd.x, 0.0f, camFwd.z);
+            if (glm::length(fwdH) > 0.001f) {
+                fwdH = glm::normalize(fwdH);
+            } else {
+                fwdH = glm::vec3(0.0f, 0.0f, 1.0f);
+            }
+            glm::vec3 rgtH = glm::normalize(glm::cross(fwdH, glm::vec3(0.0f, 1.0f, 0.0f)));
+
+            for (int s = 0; s < 4; s++) {
+                float dist = 0.9f + float(s) * 0.70f;
+                float side = (s % 2 == 0) ? -0.18f : 0.18f;
+                glm::vec3 stepPos = basePos + fwdH * dist + rgtH * side;
+                glm::vec4 posRadius(stepPos.x, stepPos.y, stepPos.z, 0.30f);
+                glm::vec4 dirDepth(fwdH.x, fwdH.z, 0.12f, 0.92f);
+                renderer.queueFootstep(posRadius, dirDepth);
+            }
+
+            int warmupFrames = triggerAvalancheOnStart ? 45 : 12;
+            for (int f = 0; f < warmupFrames; f++) {
                 timer.tick();
                 weatherSystem.update(timer.deltaTime());
                 renderer.renderFrame(
@@ -164,12 +195,22 @@ int main(int argc, char* argv[]) {
             if (input.toggleLiveWeather) {
                 weatherSystem.toggleLiveWeather();
             }
+            if (input.triggerAvalanche) {
+                renderer.triggerAvalanche();
+            }
 
             // Update weather simulation
             weatherSystem.update(timer.deltaTime());
 
             // Update player physics, collision, ground snapping, and camera
             player.update(timer.deltaTime(), input);
+
+            // Forward player footsteps to renderer for snow deformation
+            const auto& recentSteps = player.getRecentFootsteps();
+            for (const auto& step : recentSteps) {
+                renderer.queueFootstep(step.posRadius, step.dirDepth);
+            }
+            player.clearRecentFootsteps();
 
             // Render frame using Vulkan 1.4 Dynamic Rendering & Slang shader with full atmosphere
             renderer.renderFrame(

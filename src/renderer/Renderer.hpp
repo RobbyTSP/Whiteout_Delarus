@@ -41,6 +41,11 @@ public:
     [[nodiscard]] float getCurrentExposure() const { return m_currentExposure; }
     [[nodiscard]] float getTargetLuminance() const { return m_targetLuminance; }
 
+    // Step 20: Elasto-Plastic MPM Snow Physics & Avalanche Controls
+    void queueFootstep(const glm::vec4& posRadius, const glm::vec4& dirDepth);
+    void triggerAvalanche();
+    [[nodiscard]] bool isAvalancheActive() const { return m_avalancheActive; }
+
 private:
     void initSyncObjects();
     void createCommandBuffers();
@@ -106,6 +111,70 @@ private:
     float m_currentExposure = 1.0f;
     float m_targetLuminance = 1.0f;
     float m_lastFrameTime = 0.0f;
+
+    // Step 20: Elasto-Plastic MPM Deformable Snow Physics & Footstep Stamping
+    void initSnowPhysics();
+    void cleanupSnowPhysics();
+    void dispatchSnowPhysics(
+        VkCommandBuffer cmd,
+        const glm::vec3& cameraPos,
+        float totalTime,
+        float deltaTime,
+        const glm::vec3& windDir,
+        float windSpeed,
+        float blizzardFactor
+    );
+
+    static constexpr uint32_t SNOW_DEFORM_RES = 1024;
+    VkImage m_snowDeformImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_snowDeformImageMemory = VK_NULL_HANDLE;
+    VkImageView m_snowDeformImageView = VK_NULL_HANDLE;
+    VkSampler m_snowDeformSampler = VK_NULL_HANDLE;
+    VkImageLayout m_snowCurrentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    std::unique_ptr<rhi::VulkanComputePipeline> m_snowComputePipeline;
+    VkDescriptorSetLayout m_snowDescriptorLayout = VK_NULL_HANDLE;
+    VkDescriptorSet m_snowDescriptorSet = VK_NULL_HANDLE;
+
+    struct FootstepData {
+        glm::vec4 posRadius; // xyz = world pos, w = radius / length (m)
+        glm::vec4 dirDepth;  // xy = normalized dir, z = depth (m), w = compaction (0..1)
+    };
+    std::vector<FootstepData> m_queuedFootsteps;
+
+    // Step 20: Real-Time GPU Powder Avalanche (Staublawine auf der Lhotse-Wand)
+    void initAvalanche();
+    void cleanupAvalanche();
+    void dispatchAvalanche(
+        VkCommandBuffer cmd,
+        float deltaTime,
+        float totalTime,
+        const glm::vec3& windDir,
+        float windSpeed,
+        float blizzardFactor
+    );
+    void renderAvalanche(
+        VkCommandBuffer cmd,
+        const core::Camera& camera,
+        const glm::vec3& sunDir,
+        const glm::vec3& sunColor,
+        float blizzardFactor,
+        float totalTime
+    );
+
+    static constexpr uint32_t AVALANCHE_PARTICLE_COUNT = 8192;
+    std::unique_ptr<rhi::VulkanBuffer> m_avalancheParticleBuffer;
+
+    std::unique_ptr<rhi::VulkanComputePipeline> m_avalancheComputePipeline;
+    VkDescriptorSetLayout m_avalancheComputeLayout = VK_NULL_HANDLE;
+    VkDescriptorSet m_avalancheComputeSet = VK_NULL_HANDLE;
+
+    std::unique_ptr<rhi::VulkanPipeline> m_avalancheRenderPipeline;
+    VkDescriptorSetLayout m_avalancheRenderLayout = VK_NULL_HANDLE;
+    VkDescriptorSet m_avalancheRenderSet = VK_NULL_HANDLE;
+
+    bool m_avalancheActive = false;
+    float m_avalancheTimer = 0.0f;
 
     // Step 18: 3D Boulder Instancing Data
     struct BoulderInstanceData {

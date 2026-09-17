@@ -50,6 +50,7 @@ ConstantBuffer<PushConstants> pc;
 [[vk::binding(18, 0)]] Sampler2D texGeomorphology;
 [[vk::binding(19, 0)]] Sampler2D texElevationDEM;
 [[vk::binding(20, 0)]] Sampler2D texMultiBounceGI;
+[[vk::binding(21, 0)]] Sampler2D texSnowDeformation;
 
 struct VertexInput {
     [[vk::location(0)]] float3 position   : POSITION;

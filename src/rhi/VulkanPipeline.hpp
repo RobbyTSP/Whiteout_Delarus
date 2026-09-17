@@ -72,7 +72,9 @@ public:
         const std::vector<VkVertexInputAttributeDescription>& attributeDescriptions,
         VkDescriptorSetLayout externalDescriptorLayout = VK_NULL_HANDLE,
         uint32_t pushConstantSize = sizeof(TerrainPushConstants),
-        VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT
+        VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT,
+        bool enableAlphaBlend = false,
+        bool depthWrite = true
     );
 
     ~VulkanPipeline();

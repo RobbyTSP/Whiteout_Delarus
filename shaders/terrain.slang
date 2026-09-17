@@ -62,6 +62,9 @@ ConstantBuffer<PushConstants> pc;
 // 20: Step 19 Hardware Ray-Traced Multi-Bounce GI (Western Cwm "Glutofen" Snowlight Radiance)
 [[vk::binding(20, 0)]] Sampler2D texMultiBounceGI;
 
+// 21: Step 20 Dynamic Snow Deformation (Footstep Stamping & MPM Hardening)
+[[vk::binding(21, 0)]] Sampler2D texSnowDeformation;
+
 struct VertexInput {
     float3 position : POSITION;
     float3 normal   : NORMAL;
@@ -420,6 +423,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 V = normalize(pc.cameraPos.xyz - input.worldPos);
     float3 L = normalize(pc.sunDir.xyz);
     float distToCam = length(pc.cameraPos.xyz - input.worldPos);
+
+    // Yield to 0.25m CDLOD Micro-Terrain in player vicinity
+    if (distToCam < 28.0) {
+        discard;
+    }
 
 
     // 1. Sample Macro Textures (ESRI Satellite + Recomputed Macro Normal + Sculpted Geomorphology)
