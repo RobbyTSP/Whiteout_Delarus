@@ -53,10 +53,12 @@ void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID) {
         float r3 = hash(idx * 53u + uint(pc.totalTime * 25.0));
 
         // Progressive distribution along the 1,100m Lhotse couloir chute:
-        // Top fracture: (-9750, 7450, -7600) -> Bottom runout in Cwm: (-11650, 6420, -7550)
         float tChute = hash(idx * 47u);
         float3 topPos = pc.originTrigger.xyz;
-        float3 botPos = float3(-11650.0, 6420.0, -7550.0);
+        // Runout path: connects crown fracture down to valley floor
+        float3 botPos = (topPos.x > -10500.0 && topPos.x < -9000.0 && topPos.y > 7000.0)
+            ? float3(-11650.0, 6420.0, -7550.0) // Lhotse Face couloir runout
+            : topPos + float3(-1600.0, -900.0, (r2 - 0.5) * 400.0);
 
         float3 chutePos = lerp(topPos, botPos, tChute);
         float lateralSpread = lerp(45.0, 190.0, tChute);

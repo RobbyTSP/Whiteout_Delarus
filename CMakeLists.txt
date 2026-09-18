@@ -97,6 +97,7 @@ set(SOURCES
     src/game/TerrainCollider.cpp
     src/game/Player.cpp
     src/game/WeatherSystem.cpp
+    src/game/SnowpackSimulation.cpp
     src/audio/AcousticRaytracer.cpp
     src/audio/AlpineAudioEngine.cpp
 )
@@ -116,6 +117,7 @@ set(HEADERS
     src/game/TerrainCollider.hpp
     src/game/Player.hpp
     src/game/WeatherSystem.hpp
+    src/game/SnowpackSimulation.hpp
     src/audio/AcousticRaytracer.hpp
     src/audio/AlpineAudioEngine.hpp
 )

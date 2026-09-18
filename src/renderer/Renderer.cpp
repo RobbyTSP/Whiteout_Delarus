@@ -518,10 +518,14 @@ void Renderer::queueFootstep(const glm::vec4& posRadius, const glm::vec4& dirDep
     m_queuedFootsteps.push_back({posRadius, dirDepth});
 }
 
-void Renderer::triggerAvalanche() {
+void Renderer::triggerAvalanche(const glm::vec3& releasePoint) {
     m_avalancheActive = true;
     m_avalancheTimer = 0.0f;
-    std::cout << "[Renderer] Powder Avalanche triggered on Lhotse Face! 8,192 physical particles descending." << std::endl;
+    m_avalancheOrigin = releasePoint;
+    std::cout << "[Renderer] Powder Avalanche triggered at ("
+              << static_cast<int>(releasePoint.x) << ", "
+              << static_cast<int>(releasePoint.y) << ", "
+              << static_cast<int>(releasePoint.z) << ")! 8,192 physical particles descending." << std::endl;
 }
 
 void Renderer::initSnowPhysics() {
@@ -667,7 +671,9 @@ void Renderer::dispatchSnowPhysics(
     float deltaTime,
     const glm::vec3& windDir,
     float windSpeed,
-    float blizzardFactor
+    float blizzardFactor,
+    const glm::vec4& slabCrackOrigin,
+    const glm::vec4& slabCrackParams
 ) {
     (void)totalTime;
     if (!m_snowComputePipeline || m_snowDescriptorSet == VK_NULL_HANDLE) return;
@@ -722,12 +728,16 @@ void Renderer::dispatchSnowPhysics(
         glm::vec4 snowCenterSpan; // xy = center XZ, z = span (64.0m), w = deltaTime
         glm::vec4 windParams;     // xy = wind direction * windSpeed, z = blizzardFactor, w = footstepCount
         FootstepImpulse footsteps[4];
+        glm::vec4 slabCrackOrigin;
+        glm::vec4 slabCrackParams;
     } pc{};
 
     pc.snowCenterSpan = glm::vec4(cameraPos.x, cameraPos.z, 64.0f, deltaTime);
     glm::vec2 windDir2D = glm::normalize(glm::vec2(windDir.x, windDir.z) + glm::vec2(0.001f, 0.0f));
     uint32_t stepCount = std::min(static_cast<uint32_t>(m_queuedFootsteps.size()), 4u);
     pc.windParams = glm::vec4(windDir2D * windSpeed, blizzardFactor, static_cast<float>(stepCount));
+    pc.slabCrackOrigin = slabCrackOrigin;
+    pc.slabCrackParams = slabCrackParams;
 
     for (uint32_t i = 0; i < stepCount; i++) {
         pc.footsteps[i].posRadius = m_queuedFootsteps[i].posRadius;
@@ -964,8 +974,8 @@ void Renderer::dispatchAvalanche(
         float blastFactor;       // 0..1 whiteout blast intensity
     } pc{};
 
-    // Lhotse Face Couloir Fracture line: (-9750.0m, 7450.0m, -7600.0m)
-    pc.originTrigger = glm::vec4(-9750.0f, 7450.0f, -7600.0f, triggerVal);
+    // Dynamic Crown Fracture or Lhotse Face Couloir release point
+    pc.originTrigger = glm::vec4(m_avalancheOrigin, triggerVal);
     glm::vec3 normWind = glm::normalize(windDir);
     pc.windDirSpeed = glm::vec4(normWind, windSpeed);
     pc.deltaTime = deltaTime;
@@ -1637,7 +1647,7 @@ void Renderer::initTexturesAndDescriptors() {
         *m_context,
         SHADER_DIR "/snow_physics_comp.spv",
         m_snowDescriptorLayout,
-        160 // sizeof(SnowPhysicsPushConstants)
+        192 // sizeof(SnowPhysicsPushConstants) with Step 24 Crown Fracture fields
     );
     std::cout << "[Renderer] Elasto-Plastic MPM Snow Physics compute pipeline initialized." << std::endl;
 }
@@ -2421,7 +2431,9 @@ void Renderer::renderFrame(
     float cloudBase,
     float blizzardFactor,
     float windSpeed,
-    const CryoOpticsState& cryoOptics
+    const CryoOpticsState& cryoOptics,
+    const glm::vec4& crownOrigin,
+    const glm::vec4& crownParams
 ) {
     VkDevice device = m_context->getDevice();
 
@@ -2505,7 +2517,7 @@ void Renderer::renderFrame(
         blizzardFactor
     );
 
-    // Step 20: Elasto-Plastic MPM Snow Physics (Footsteps, Indentation, Rim & Wind Drift)
+    // Step 20 & 24: Elasto-Plastic MPM Snow Physics & Crown Fracture Simulation
     dispatchSnowPhysics(
         cmd,
         camera.getPosition(),
@@ -2513,7 +2525,9 @@ void Renderer::renderFrame(
         deltaTime,
         sunDir,
         windSpeed,
-        blizzardFactor
+        blizzardFactor,
+        crownOrigin,
+        crownParams
     );
 
     // Step 20: Real-Time GPU Powder Avalanche Physics (8,192 Particles on Lhotse Face)

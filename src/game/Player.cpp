@@ -1,4 +1,6 @@
 #include "Player.hpp"
+#include "game/SnowpackSimulation.hpp"
+#include "game/WeatherSystem.hpp"
 #include <iostream>
 #include <cmath>
 #include <iomanip>
@@ -8,8 +10,9 @@
 
 namespace whiteout::game {
 
-Player::Player(core::Camera& camera, const TerrainCollider& collider)
-    : m_camera(camera), m_collider(collider) {
+Player::Player(core::Camera& camera, const TerrainCollider& collider, const WeatherSystem* weather)
+    : m_camera(camera), m_collider(collider), m_weather(weather) {
+    m_snowpack = std::make_unique<SnowpackSimulation>(m_collider);
     // Start at Everest Base Camp
     teleportToPreset(1);
 }
@@ -403,6 +406,18 @@ void Player::updateFirstPerson(float deltaTime, const core::WindowEventState& in
     float systole = std::pow(std::max(0.0f, sinP), 5.0f);
     float dicrotic = 0.32f * std::pow(std::max(0.0f, std::sin(m_pulsePhase - 0.75f)), 9.0f);
     m_heartbeatPulse = std::clamp(systole + dicrotic, 0.0f, 1.0f);
+
+    // 10. Step 24 (1:1 Part XXII): Dynamic Snowpack Simulation & Weak-Layer Mechanics
+    if (m_snowpack && m_weather) {
+        m_snowpack->update(
+            deltaTime,
+            m_position,
+            currentSpeed,
+            m_currentSlope,
+            m_isGrounded,
+            *m_weather
+        );
+    }
 }
 
 void Player::updateFreeFlight(float deltaTime, const core::WindowEventState& input) {
@@ -424,6 +439,31 @@ void Player::updateFreeFlight(float deltaTime, const core::WindowEventState& inp
     if (m_pulsePhase > 6.2831853f) m_pulsePhase -= 6.2831853f;
     float sinP = std::sin(m_pulsePhase);
     m_heartbeatPulse = std::pow(std::max(0.0f, sinP), 5.0f);
+
+    if (m_snowpack && m_weather) {
+        m_snowpack->update(
+            deltaTime,
+            m_position,
+            0.0f,
+            m_currentSlope,
+            false,
+            *m_weather
+        );
+    }
+}
+
+const SnowpackSimulation& Player::getSnowpack() const {
+    return *m_snowpack;
+}
+
+SnowpackSimulation& Player::getSnowpack() {
+    return *m_snowpack;
+}
+
+void Player::triggerSlabFracture(float slabDepth) {
+    if (m_snowpack) {
+        m_snowpack->triggerSlabFracture(m_position, slabDepth);
+    }
 }
 
 renderer::CryoOpticsState Player::getCryoOpticsState() const {
@@ -467,6 +507,11 @@ std::string Player::getTelemetryString() const {
         ss << " | BPM: " << static_cast<int>(m_heartRateBpm);
         if (isInDeathZone()) {
             ss << " | Hypoxia: " << static_cast<int>(m_hypoxiaFactor * 100.0f) << "%";
+        }
+
+        // Step 24: Snowpack Stratification & Avalanche Hazard Telemetry
+        if (m_snowpack) {
+            ss << " | " << m_snowpack->getSnowpackTelemetry();
         }
 
         // Hotspot Proximity Recognition (Step 18 & Step 21 3DGS)

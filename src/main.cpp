@@ -5,6 +5,7 @@
 #include "game/TerrainCollider.hpp"
 #include "game/Player.hpp"
 #include "game/WeatherSystem.hpp"
+#include "game/SnowpackSimulation.hpp"
 #include "audio/AlpineAudioEngine.hpp"
 #include <iostream>
 #include <iomanip>
@@ -15,12 +16,12 @@ int main(int argc, char* argv[]) {
     (void)argv;
 
     std::cout << "=========================================================\n";
-    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 23 (1:1 PART XXI)\n";
-    std::cout << " Wave-Based Alpine Audio Raytracing & Procedural Physical Synthesis\n";
-    std::cout << " Acoustics: 35km DEM Acoustic Reflections, Nuptse 3,000m Face Echoes\n";
-    std::cout << " Wind: Aeolian Ridge Whistling, Karman Vortex Shedding, Head-Shadow Panning\n";
-    std::cout << " Material Footsteps: Glacial Blue Ice, Compacted Firn, Scree, Rock Faces\n";
-    std::cout << " Physiology: Cardiac Pulse Sync, Respiration Airflow, Cochlear Hypoxia Tinnitus\n";
+    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 24 (1:1 PART XXII)\n";
+    std::cout << " Dynamic Snow Creep, Slab Fractures & Weak-Layer Avalanche Mechanics\n";
+    std::cout << " Snowpack: Stratified Cohesive Slab, Depth Hoar Weak-Layer & Bed Surface\n";
+    std::cout << " Mechanics: Surcharge Stress & Stability S, Downhill Creep, Leeward Wind Drift\n";
+    std::cout << " Crown Fracture: Propagating Anrisskante Step, Whumpf Acoustics & Slab Release\n";
+    std::cout << " Acoustics: 35km DEM Acoustic Raytracing, Nuptse Echoes & Aeolian Ridge Wind\n";
     std::cout << " Controls:\n";
     std::cout << "   - Mouse Move: Look around (Click window to capture mouse)\n";
     std::cout << "   - W / A / S / D: Walk forward / left / back / right\n";
@@ -37,7 +38,7 @@ int main(int argc, char* argv[]) {
     std::cout << "   - T: Cycle Time of Day (Dawn Alpenglühen -> Noon -> Sunset -> Night)\n";
     std::cout << "   - B: Toggle Blizzard / Whiteout Mode (30m Visibility & Spindrift)\n";
     std::cout << "   - L: Toggle Live Open-Meteo Weather Synchronization\n";
-    std::cout << "   - K: Trigger GPU Powder Avalanche on Lhotse Face (8,192 particles)\n";
+    std::cout << "   - K: Trigger Slab Fracture & Avalanche (Weak-Layer Collapse & Crown Tear)\n";
     std::cout << "   - ESC: Release mouse capture / Exit\n";
     std::cout << "=========================================================\n" << std::endl;
 
@@ -62,15 +63,28 @@ int main(int argc, char* argv[]) {
         whiteout::game::TerrainCollider collider(34610.0f, 34520.0f);
         collider.loadDem(DATA_DIR "/processed/everest_dem_float32.bin", 1024, 1024);
 
-        // First-person player character controller
-        whiteout::game::Player player(camera, collider);
-
         // Live Weather & Atmosphere System (Open-Meteo + Alpenglühen + Wolkenmeer)
         whiteout::game::WeatherSystem weatherSystem(DATA_DIR "/weather/everest_current.json");
+
+        // First-person player character controller
+        whiteout::game::Player player(camera, collider, &weatherSystem);
 
         // Wave-Based Alpine Audio Raytracing & Procedural Synthesis (Step 23)
         whiteout::audio::AlpineAudioEngine audioEngine;
         audioEngine.init(&collider);
+
+        // Step 24: Snowpack Stratification & Avalanche Mechanics Callbacks
+        auto& snowpack = player.getSnowpack();
+        snowpack.setWhumpfCallback([&audioEngine](const glm::vec3& pos, float intensity) {
+            audioEngine.triggerWhumpf(pos, intensity);
+        });
+        snowpack.setCrownSnapCallback([&audioEngine](const glm::vec3& pos, float crackLength) {
+            audioEngine.triggerCrownSnap(pos, crackLength);
+        });
+        snowpack.setAvalancheReleaseCallback([&renderer](const glm::vec3& pos, const std::vector<glm::vec3>& crownPath) {
+            (void)crownPath;
+            renderer.triggerAvalanche(pos);
+        });
 
         whiteout::core::Timer timer;
 
@@ -185,7 +199,8 @@ int main(int argc, char* argv[]) {
         }
 
         if (triggerAvalancheOnStart) {
-            renderer.triggerAvalanche();
+            player.triggerSlabFracture(0.85f);
+            renderer.triggerAvalanche(player.getPosition());
             audioEngine.triggerAvalanche();
         }
 
@@ -201,6 +216,7 @@ int main(int argc, char* argv[]) {
             }
             if (triggerAvalancheOnStart) {
                 audioEngine.triggerAvalanche();
+                audioEngine.triggerWhumpf(player.getPosition(), 1.8f);
             }
             audioEngine.renderToWav(recordAudioPath, recordAudioDuration, camera, player, weatherSystem);
             std::cout << "[Engine] Audio rendering successfully completed. Exiting." << std::endl;
@@ -254,6 +270,20 @@ int main(int argc, char* argv[]) {
 
                 audioEngine.update(timer.deltaTime(), camera, player, weatherSystem);
 
+                glm::vec4 crownOrigin(0.0f);
+                glm::vec4 crownParams(0.0f);
+                const auto& crown = player.getSnowpack().getActiveCrownFracture();
+                if (crown.active) {
+                    crownOrigin = glm::vec4(crown.originWorldPos.x, crown.originWorldPos.z, crown.currentRadiusMeters, 1.0f);
+                    float angle = std::atan2(crown.propagationDir.z, crown.propagationDir.x);
+                    crownParams = glm::vec4(
+                        crown.slabStepHeightMeters,
+                        angle,
+                        player.getSnowpack().getDynamics().creepVelocityMmPerHour,
+                        1.0f
+                    );
+                }
+
                 renderer.renderFrame(
                     camera,
                     timer.totalTime(),
@@ -263,7 +293,9 @@ int main(int argc, char* argv[]) {
                     weatherSystem.getCloudBase(),
                     weatherSystem.getBlizzardFactor(),
                     weatherSystem.getWindSpeed(),
-                    player.getCryoOpticsState()
+                    player.getCryoOpticsState(),
+                    crownOrigin,
+                    crownParams
                 );
             }
             renderer.saveScreenshot(screenshotPath);
@@ -272,6 +304,7 @@ int main(int argc, char* argv[]) {
             if (!recordAudioPath.empty()) {
                 if (triggerAvalancheOnStart) {
                     audioEngine.triggerAvalanche();
+                    audioEngine.triggerWhumpf(player.getPosition(), 1.8f);
                 }
                 audioEngine.renderToWav(recordAudioPath, recordAudioDuration, camera, player, weatherSystem);
             }
@@ -306,7 +339,8 @@ int main(int argc, char* argv[]) {
                 weatherSystem.toggleLiveWeather();
             }
             if (input.triggerAvalanche) {
-                renderer.triggerAvalanche();
+                player.triggerSlabFracture(0.85f);
+                renderer.triggerAvalanche(player.getPosition());
                 audioEngine.triggerAvalanche();
             }
 
@@ -333,6 +367,21 @@ int main(int argc, char* argv[]) {
             // Update wave-based alpine acoustics & raytracing
             audioEngine.update(timer.deltaTime(), camera, player, weatherSystem);
 
+            // Compute Step 24 Crown Fracture & Slab Failure Parameters
+            glm::vec4 crownOrigin(0.0f);
+            glm::vec4 crownParams(0.0f);
+            const auto& crown = player.getSnowpack().getActiveCrownFracture();
+            if (crown.active) {
+                crownOrigin = glm::vec4(crown.originWorldPos.x, crown.originWorldPos.z, crown.currentRadiusMeters, 1.0f);
+                float angle = std::atan2(crown.propagationDir.z, crown.propagationDir.x);
+                crownParams = glm::vec4(
+                    crown.slabStepHeightMeters,
+                    angle,
+                    player.getSnowpack().getDynamics().creepVelocityMmPerHour,
+                    1.0f
+                );
+            }
+
             // Render frame using Vulkan 1.4 Dynamic Rendering & Slang shader with full atmosphere
             renderer.renderFrame(
                 camera,
@@ -343,7 +392,9 @@ int main(int argc, char* argv[]) {
                 weatherSystem.getCloudBase(),
                 weatherSystem.getBlizzardFactor(),
                 weatherSystem.getWindSpeed(),
-                player.getCryoOpticsState()
+                player.getCryoOpticsState(),
+                crownOrigin,
+                crownParams
             );
 
             // Realtime HUD & Telemetry in window title

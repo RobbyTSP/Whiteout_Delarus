@@ -11,6 +11,9 @@ struct SnowPhysicsPushConstants {
     float4 snowCenterSpan; // xy = center XZ, z = span (64.0m), w = deltaTime
     float4 windParams;     // xy = wind direction * windSpeed, z = blizzardFactor, w = footstepCount
     FootstepImpulse footsteps[4]; // Up to 4 active footsteps per frame
+    // Step 24: Crown Fracture & Slab Failure Parameters
+    float4 slabCrackOrigin; // xy = crack epicenter XZ, z = current radius, w = active flag
+    float4 slabCrackParams; // x = slab step height (m), y = crack contour angle (rad), z = creep rate (mm/h), w = weakLayerCollapsed
 };
 
 [[vk::push_constant]]
@@ -114,6 +117,58 @@ void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID) {
     }
     if (state.g > 0.0) {
         state.g = max(state.g - fillRate * 0.6f, 0.0f);
+    }
+
+    // =========================================================================
+    // 3. Step 24: Crown Fracture Line (Anrisskante) & Slab Detachment Step
+    // =========================================================================
+    if (pc.slabCrackOrigin.w > 0.5) {
+        float2 crackOrigin = pc.slabCrackOrigin.xy;
+        float currentRadius = pc.slabCrackOrigin.z;
+        float stepHeight = pc.slabCrackParams.x; // e.g. 0.75m
+        float crackAngle = pc.slabCrackParams.y; // cross-slope horizontal contour angle
+
+        float2 toTexel = worldXZ - crackOrigin;
+        float distToOrigin = length(toTexel);
+
+        // Crack propagates outward up to currentRadius
+        if (distToOrigin <= currentRadius + 12.0) {
+            float2 crackDir = float2(cos(crackAngle), sin(crackAngle));
+            float2 downslopeDir = float2(-crackDir.y, crackDir.x);
+
+            float lateralDist = dot(toTexel, crackDir);
+            float downslopeDist = dot(toTexel, downslopeDir);
+
+            // High-frequency fractal zigzag tear across the Anrisskante lip
+            float zigzag = sin(lateralDist * 0.45) * 1.4 + cos(lateralDist * 1.15) * 0.65;
+            float fractureDist = downslopeDist - zigzag;
+
+            // Crack propagation wavefront factor
+            float waveFront = 1.0 - smoothstep(currentRadius - 6.0, currentRadius + 4.0, distToOrigin);
+
+            // Downslope of the crown fracture line (0m to 28m):
+            // The cohesive slab has detached and slid away, exposing the hard bed surface!
+            if (fractureDist > 0.0 && fractureDist < 28.0) {
+                float stepDrop = -stepHeight * waveFront;
+                state.r = min(state.r, stepDrop);
+                state.g = max(state.g, 0.95); // Compaction of exposed firn bed surface
+                state.b = 0.0;
+            } else if (abs(fractureDist) <= 1.2) {
+                // Upslope overhanging fracture lip on the crown rim
+                float lipRatio = sin(clamp((1.2 - abs(fractureDist)) / 1.2, 0.0, 1.0) * 3.14159);
+                float lipHeight = stepHeight * 0.38 * lipRatio * waveFront;
+                state.b = max(state.b, lipHeight);
+            }
+        }
+    }
+
+    // =========================================================================
+    // 4. Step 24: Visco-Elastic Downhill Creep Displacement
+    // =========================================================================
+    float creepMmH = pc.slabCrackParams.z;
+    if (creepMmH > 0.01) {
+        float creepDisplacement = (creepMmH * 0.001 / 3600.0) * dt;
+        state.b = max(state.b, creepDisplacement * 0.25);
     }
 
     texSnowDeformation[dispatchThreadID.xy] = state;

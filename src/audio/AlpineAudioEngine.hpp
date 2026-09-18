@@ -72,6 +72,27 @@ struct IceCollapseEvent {
     float pan = 0.0f;
 };
 
+// Step 24: Subterranean Weak-Layer "Whumpf" Event (Depth Hoar Collapse)
+struct WhumpfEvent {
+    bool active = false;
+    float timeSec = 0.0f;
+    float durationSec = 0.38f;
+    float frequency = 34.0f; // 26 - 44 Hz sub-bass shockwave
+    float intensity = 1.0f;
+    float pan = 0.0f;
+};
+
+// Step 24: Crown Fracture Tensile Crack Event (Slab Anrisskante Snap)
+struct CrownSnapEvent {
+    bool active = false;
+    float timeSec = 0.0f;
+    float durationSec = 0.70f;
+    float crackLength = 180.0f;
+    float intensity = 1.0f;
+    float panStart = -0.5f;
+    float panEnd = 0.6f;
+};
+
 class AlpineAudioEngine {
 public:
     AlpineAudioEngine();
@@ -92,6 +113,10 @@ public:
     void triggerFootstep(game::AlpineSurfaceType surface, float intensity = 1.0f, bool isLeftFoot = false);
     void triggerIcefallCollapse(const glm::vec3& worldPos, float magnitude = 1.0f);
     void triggerAvalanche(float intensity = 1.0f);
+
+    // Step 24: Weak-Layer "Whumpf" and Crown Fracture Tensile Snap
+    void triggerWhumpf(const glm::vec3& worldPos, float intensity = 1.0f);
+    void triggerCrownSnap(const glm::vec3& worldPos, float crackLength = 180.0f);
 
     // Audio offline renderer to WAV file (48kHz 16-bit stereo) for testing & verification
     bool renderToWav(
@@ -160,6 +185,10 @@ private:
 
     // Active Icefall Calving / Avalanche Events
     std::vector<IceCollapseEvent> m_iceCollapses;
+
+    // Step 24: Weak-Layer "Whumpf" & Crown Fracture Snap Events
+    WhumpfEvent m_whumpf;
+    CrownSnapEvent m_crownSnap;
 
     // Periodic ambient ice cracking timer
     float m_ambientCrackTimer = 5.0f;

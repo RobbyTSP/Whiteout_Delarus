@@ -894,9 +894,49 @@ Physikalisch exakte Modellierung der extremen Hochatmosphäre der Todeszone ($>7
     * **Hypoxie-Tinnitus in der Todeszone (> 8.000 m):** Schmalbandiger zerebraler 3.850 Hz Sinuston, dessen Intensität proportional zum $O_2$-Mangel anschwillt.
   * **Headless-WAV-Export & Paritätsprüfung:**
     * CLI-Parameter `--record-audio <pfad.wav>` und `--record-duration <sekunden>` zur Aufzeichnung von 48 kHz 16-Bit Stereo PCM-Audio für automatisierte Verifikation.
-* [ ] **Schritt 24 (1:1 Part XXII): Dynamic Snow Creep, Slab Fractures & Weak-Layer Avalanche Mechanics:**
-  * Schneedecken-Schichtungsmodell (Neu- vs. Schwimmschnee-Tiefenreif) mit elasto-plastischem Bruchversagen entlang schwacher Schichten.
-  * Kronenanriss-Ausbreitung (*Crown Fracture*) über Steilwände und dynamische Schneedrift-Akkumulation in Windschattenmulden.
+* [x] **Schritt 24 (1:1 Part XXII): Dynamic Snow Creep, Slab Fractures & Weak-Layer Avalanche Mechanics:**
+  * **Schneedecken-Schichtungsmodell (Stratified Snowpack Physics):**
+    * Dreiphasige physikalische Stratigraphie:
+      * **Kohärente Triebschneeplatte (*Cohesive Slab*):** $h_{\text{slab}} \approx 0.25–1.6\,\text{m}$, Dichte $\rho \approx 280\,\text{kg/m}^3$, Elastizitätsmodul $E \approx 22\,\text{MPa}$, Zugfestigkeit $\sigma_t \approx 14.5\,\text{kPa}$.
+      * **Begrabene Schwachschicht (*Buried Weak Layer / Tiefenreif / Depth Hoar*):** Kritische Scherfestigkeit $\tau_c \approx 980\,\text{Pa}$, facettierte Becherkristalle entstanden durch metamorphen Temperaturgradienten $\nabla T > 15\,\text{K/m}$.
+      * **Altschnee-Gleitbett (*Substrate Firn Bed Surface*):** Coulomb-Reibungskoeffizient $\mu = 0.42$, Härtegrad $g = 0.95$.
+    * **Visko-elastisches Schneekriechen hangabwärts (*Downhill Snow Creep*):**
+      $$v_{\text{creep}} = k \cdot \sin(\theta) \cdot h_{\text{slab}}^{1.8} \quad [\text{mm/h}]$$
+      Kriechbewegung führt zu kontinuierlicher Scherdeformation an der Schwachschicht-Grenzfläche.
+    * **Bagnold-Saltations-Schneedrift (*Wind Drift Accumulation*):**
+      $$Q_{\text{drift}} \sim v_{\text{wind}}^3$$
+      Orografische Lee-Akkumulation verfrachtet Triebschnee in Rinnen und Couloirs unterhalb von Graten (Lhotse Face, Genfer Sporn).
+  * **Schwachschicht-Kollaps & Kronenanriss-Ausbreitung (*Crown Fracture & Anticrack Propagation*):**
+    * **Dynamischer Stabilitätsindex $S$ nach SLF Davos:**
+      $$S = \frac{\tau_c}{\tau_{\text{grav}} + \Delta \tau_{\text{player}}}$$
+      $$\tau_{\text{grav}} = \rho_{\text{slab}} \cdot g \cdot h_{\text{slab}} \cdot \sin(\theta)$$
+      $$\Delta \tau_{\text{player}} = \frac{M_{\text{mountaineer}} \cdot g \cdot \sin(\theta) \cdot \kappa_{\text{dyn}}}{2\pi \cdot h_{\text{slab}}^2}$$
+    * **Kritisches Scherbruch-Versagen:**
+      Bei $S < 1.0$ auf Hängen zwischen $30^\circ$ und $54^\circ$ bricht das Gefüge der Tiefenreifkristalle spontan zusammen (ausgelöst durch Bergsteiger-Zusatzlast, Windeintrag oder Taste `K`).
+    * **Anticrack-Wellenausbreitung & Kronenanrisskante (*Crown Fracture Line*):**
+      * Kompressions- und Zugrissfront expandiert mit $v_{\text{crack}} \approx 48\,\text{m/s}$ radial/transversal über $80–280\,\text{m}$ Spannweite.
+      * Fraktale Konturierung mit Perlin-Turbulenz formt die charakteristische scharfkantige Abrissstufe.
+      * GPU-seitiger Höhensprung (Step Drop $-h_{\text{slab}}$) und Freilegung des verdichteten Firnhizonts ($g = 0.95$).
+  * **Multimodale Akustik-Kopplung (Sub-Bass Whumpf & Tensile Snap):**
+    * **Subterraner „Whumpf!“-Schlag:** Tiefstfrequenter Luftexpulsations-Druckstoß ($34\,\text{Hz} \to 20.4\,\text{Hz}$ Sub-Bass, 0.38s Dauer), der die unmittelbare Schwachschichtimplosion signalisiert.
+    * **Spröder Zugriss-Knall (*Tensile Crown Snap*):** Hochenergetischer Zerreißknall im Bereich $1.400–2.200\,\text{Hz}$, der mit der Rissausbreitungsfront von der Rissmitte zu den Rändern über das Stereofeld wandert (*Dynamic Spatial Panning*).
+    * **Lawinengrollen & Nuptse-Echo:** Nahtloser Übergang in das Infraschall-Grollen der abrutschenden Schneemassen mit 4.6–7.5s Echo-Rückwurf von der Nuptse-Wand.
+  * **GPU-Compute & Raster-Integration (`snow_physics.slang` & `avalanche_physics.slang`):**
+    * Erweiterung des `SnowPhysicsPushConstants`-Blocks auf 192 Bytes mit `slabCrackOrigin` und `slabCrackParams`.
+    * Automatische Anbindung des GPU-Pulverschneelawinen-Emitters (8.192 physikalische Partikel), die direkt an den Koordinaten der frischen Abrisskante abgleiten.
+  * **Verifikation:**
+    * Paritätsnachweis via Headless-Audio (`step24_slab_avalanche.wav`) mit FFT-Validierung: Dominante 28.9 Hz Sub-Bass-Spitze (Whumpf) und 19.008 spektrale Energieeinheiten im Rissband (1.2–2.4 kHz).
+    * 1600x900 Screenshots (`step24_slab_avalanche.png` und `step24_slab_overview.png`).
+* [ ] **Schritt 25 (1:1 Part XXIII): Dynamic Crevasse Bridges, Bergschrund Tectonics & Aluminum Ladder Physics:**
+  * **Dynamische Gletscherspalten-Schneebrücken (*Snowbridge Creep & Failure*):**
+    * Modellierung von Firn-Gewölbebrücken über Gletscherspalten im Khumbu-Eisfall.
+    * Plastische Kriech-Durchbiegung unter Eigenlast und Spannungsspitzen bei Überschreitung der Grenzbiegespannung $\sigma_{\text{bend}} > \sigma_{\text{crit}}$ durch Bergsteigergewicht.
+  * **Bergschrund-Tektonik & Randkluft-Morphologie:**
+    * Trennzone zwischen steifem Wandfirn und fließendem Tal-Eisstrom mit dynamischer Zerrungsgeometrie.
+  * **Expeditions-Aluminiumleitern (*Sectional Crevasse Ladders*):**
+    * 4-teilige zusammensteckbare Aluminiumleitern mit elastischer Trägerbiegung nach Euler-Bernoulli.
+    * Physikalisches Schwanken, Resonanzschwingungen beim Balancieren mit Steigeisen und metallisches Klink-Feedback bei jedem Schritt.
+
 
 
 

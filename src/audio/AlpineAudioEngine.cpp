@@ -312,6 +312,47 @@ void AlpineAudioEngine::triggerAvalanche(float intensity) {
     triggerIcefallCollapse(avalancheOrigin, intensity * 1.8f);
 }
 
+void AlpineAudioEngine::triggerWhumpf(const glm::vec3& worldPos, float intensity) {
+    std::lock_guard<std::mutex> lock(m_audioMutex);
+
+    m_whumpf.active = true;
+    m_whumpf.timeSec = 0.0f;
+    m_whumpf.durationSec = 0.38f;
+    m_whumpf.frequency = 34.0f;
+    m_whumpf.intensity = std::clamp(intensity, 0.4f, 2.5f);
+
+    glm::vec3 toSource = worldPos - m_listenerPos;
+    if (glm::length(toSource) > 0.1f) {
+        m_whumpf.pan = std::clamp(glm::dot(glm::normalize(toSource), m_listenerRight), -0.8f, 0.8f);
+    } else {
+        m_whumpf.pan = 0.0f;
+    }
+
+    std::cout << "[Audio] Subterranean 'Whumpf' weak-layer collapse triggered! Intensity: "
+              << m_whumpf.intensity << std::endl;
+}
+
+void AlpineAudioEngine::triggerCrownSnap(const glm::vec3& worldPos, float crackLength) {
+    std::lock_guard<std::mutex> lock(m_audioMutex);
+
+    m_crownSnap.active = true;
+    m_crownSnap.timeSec = 0.0f;
+    m_crownSnap.durationSec = 0.70f;
+    m_crownSnap.crackLength = crackLength;
+    m_crownSnap.intensity = 1.35f;
+
+    glm::vec3 toSource = worldPos - m_listenerPos;
+    float basePan = 0.0f;
+    if (glm::length(toSource) > 0.1f) {
+        basePan = std::clamp(glm::dot(glm::normalize(toSource), m_listenerRight), -0.8f, 0.8f);
+    }
+    m_crownSnap.panStart = std::clamp(basePan - 0.45f, -1.0f, 1.0f);
+    m_crownSnap.panEnd = std::clamp(basePan + 0.45f, -1.0f, 1.0f);
+
+    std::cout << "[Audio] Crown fracture tensile snap triggered! Crack breadth: "
+              << crackLength << "m" << std::endl;
+}
+
 void AlpineAudioEngine::generateAudioFrame(float& left, float& right, float dt) {
     left = 0.0f;
     right = 0.0f;
@@ -438,6 +479,65 @@ void AlpineAudioEngine::generateAudioFrame(float& left, float& right, float dt) 
             echoSendR += gR;
         }
         i++;
+    }
+
+    // =========================================================================
+    // 3b. Step 24: Subterranean Weak-Layer "Whumpf" Collapse
+    // =========================================================================
+    if (m_whumpf.active) {
+        m_whumpf.timeSec += dt;
+        if (m_whumpf.timeSec >= m_whumpf.durationSec) {
+            m_whumpf.active = false;
+        } else {
+            float t = m_whumpf.timeSec;
+            // Sub-bass frequency sweep (drops from 40Hz down to 24Hz)
+            float f = m_whumpf.frequency * (1.0f - 0.40f * (t / m_whumpf.durationSec));
+            float sineSub = std::sin(6.2831853f * f * t);
+            // Sharp initial shockwave envelope + heavy sub-bass decay
+            float env = std::exp(-14.0f * t) + 0.35f * std::exp(-5.5f * t);
+            float whumpfSample = (sineSub * 1.8f + getPinkNoise() * 0.45f) * env * m_whumpf.intensity;
+
+            float panL = std::clamp(1.0f - m_whumpf.pan * 0.5f, 0.2f, 1.2f);
+            float panR = std::clamp(1.0f + m_whumpf.pan * 0.5f, 0.2f, 1.2f);
+
+            left += whumpfSample * panL * 0.95f;
+            right += whumpfSample * panR * 0.95f;
+
+            echoSendL += whumpfSample * panL * 0.65f;
+            echoSendR += whumpfSample * panR * 0.65f;
+        }
+    }
+
+    // =========================================================================
+    // 3c. Step 24: Crown Fracture Tensile Snap (Slab Anrisskante Tearing)
+    // =========================================================================
+    if (m_crownSnap.active) {
+        m_crownSnap.timeSec += dt;
+        if (m_crownSnap.timeSec >= m_crownSnap.durationSec) {
+            m_crownSnap.active = false;
+        } else {
+            float t = m_crownSnap.timeSec;
+            float progress = t / m_crownSnap.durationSec;
+            // Crack propagates across the slope: stereo pan sweeps across the face
+            float currentPan = glm::mix(m_crownSnap.panStart, m_crownSnap.panEnd, progress);
+
+            // Explosive crystalline crack burst (1400 Hz - 2600 Hz resonance)
+            float snapFreq = 2200.0f - progress * 800.0f;
+            float snapOsc = std::sin(6.2831853f * snapFreq * t);
+            float fractalCrack = getWhiteNoise() * (std::sin(t * 850.0f) > 0.3f ? 1.4f : 0.2f);
+            float snapEnv = std::exp(-9.0f * t) * (1.0f + 0.4f * std::sin(progress * 25.0f));
+
+            float snapSample = (snapOsc * 0.75f + fractalCrack * 0.85f) * snapEnv * m_crownSnap.intensity;
+
+            float snapL = snapSample * std::clamp(1.0f - currentPan * 0.6f, 0.1f, 1.3f);
+            float snapR = snapSample * std::clamp(1.0f + currentPan * 0.6f, 0.1f, 1.3f);
+
+            left += snapL * 0.85f;
+            right += snapR * 0.85f;
+
+            echoSendL += snapL * 0.75f;
+            echoSendR += snapR * 0.75f;
+        }
     }
 
     // Feed collapsing sound into acoustic delay line
@@ -568,8 +668,17 @@ bool AlpineAudioEngine::renderToWav(
     glm::vec3 icePos(-11000.0f, 6800.0f, -6500.0f);
     triggerIcefallCollapse(icePos, 1.4f);
 
+    bool avalancheSlabActive = m_whumpf.active;
+    if (avalancheSlabActive) {
+        m_whumpf.timeSec = 0.0f;
+    }
+
     float dt = 1.0f / static_cast<float>(sRate);
     for (uint32_t i = 0; i < totalSamples; i++) {
+        if (i == static_cast<uint32_t>(0.12f * static_cast<float>(sRate)) && avalancheSlabActive) {
+            triggerCrownSnap(m_listenerPos + glm::vec3(15.0f, 5.0f, 20.0f), 180.0f);
+        }
+
         // Trigger all 4 material footsteps sequentially to verify distinct acoustics
         if (i == static_cast<uint32_t>(0.4f * static_cast<float>(sRate))) {
             triggerFootstep(game::AlpineSurfaceType::GlacialBlueIce, 1.2f, false);

@@ -42,7 +42,9 @@ public:
         float cloudBase = 4950.0f,
         float blizzardFactor = 0.0f,
         float windSpeed = 30.0f,
-        const CryoOpticsState& cryoOptics = CryoOpticsState{}
+        const CryoOpticsState& cryoOptics = CryoOpticsState{},
+        const glm::vec4& crownOrigin = glm::vec4(0.0f),
+        const glm::vec4& crownParams = glm::vec4(0.0f)
     );
     void onResize();
     bool saveScreenshot(const std::string& filepath);
@@ -54,10 +56,11 @@ public:
     [[nodiscard]] float getCurrentExposure() const { return m_currentExposure; }
     [[nodiscard]] float getTargetLuminance() const { return m_targetLuminance; }
 
-    // Step 20: Elasto-Plastic MPM Snow Physics & Avalanche Controls
+    // Step 20 & 24: Elasto-Plastic MPM Snow Physics & Slab Avalanche Controls
     void queueFootstep(const glm::vec4& posRadius, const glm::vec4& dirDepth);
-    void triggerAvalanche();
+    void triggerAvalanche(const glm::vec3& releasePoint = glm::vec3(-9750.0f, 7450.0f, -7600.0f));
     [[nodiscard]] bool isAvalancheActive() const { return m_avalancheActive; }
+    [[nodiscard]] const glm::vec3& getAvalancheOrigin() const { return m_avalancheOrigin; }
 
 private:
     void initSyncObjects();
@@ -135,7 +138,9 @@ private:
         float deltaTime,
         const glm::vec3& windDir,
         float windSpeed,
-        float blizzardFactor
+        float blizzardFactor,
+        const glm::vec4& slabCrackOrigin = glm::vec4(0.0f),
+        const glm::vec4& slabCrackParams = glm::vec4(0.0f)
     );
 
     static constexpr uint32_t SNOW_DEFORM_RES = 1024;
@@ -188,6 +193,7 @@ private:
 
     bool m_avalancheActive = false;
     float m_avalancheTimer = 0.0f;
+    glm::vec3 m_avalancheOrigin{-9750.0f, 7450.0f, -7600.0f};
 
     // Step 21: 3D Gaussian Splatting Photogrammetry Hotspots (Hillary Step, Summit Plateau, South Col)
     struct GaussianSplatGPU {

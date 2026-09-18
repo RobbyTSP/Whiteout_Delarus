@@ -16,9 +16,14 @@ enum class ControlMode {
     FreeFlightCamera
 };
 
+class WeatherSystem;
+class SnowpackSimulation;
+
 class Player {
 public:
-    Player(core::Camera& camera, const TerrainCollider& collider);
+    Player(core::Camera& camera, const TerrainCollider& collider, const WeatherSystem* weather = nullptr);
+
+    void setWeatherSystem(const WeatherSystem* weather) { m_weather = weather; }
 
     void update(float deltaTime, const core::WindowEventState& input);
     void teleportToPreset(int preset);
@@ -74,6 +79,11 @@ public:
     [[nodiscard]] float getBreathPhase() const { return m_breathPhase; }
 
     [[nodiscard]] renderer::CryoOpticsState getCryoOpticsState() const;
+
+    // Step 24: Stratified Snowpack, Weak-Layer Collapse & Crown Fracture
+    [[nodiscard]] const SnowpackSimulation& getSnowpack() const;
+    [[nodiscard]] SnowpackSimulation& getSnowpack();
+    void triggerSlabFracture(float slabDepth = 0.85f);
 
 private:
     void updateFirstPerson(float deltaTime, const core::WindowEventState& input);
@@ -132,6 +142,10 @@ private:
     float m_heartbeatPulse = 0.0f;   // Systole/diastole arterial pulse waveform (0..1)
     float m_breathPhase = 0.0f;      // Respiration cycle [0, 2pi]
     float m_exertion = 0.15f;        // Physical exertion level (0..1)
+
+    // Step 24: Stratified Snowpack Simulation & Weak-Layer Mechanics
+    const WeatherSystem* m_weather = nullptr;
+    std::unique_ptr<SnowpackSimulation> m_snowpack;
 };
 
 } // namespace whiteout::game
