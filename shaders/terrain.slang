@@ -89,7 +89,7 @@ VertexOutput vertexMain(VertexInput input) {
     float distToCam = length(pc.cameraPos.xyz - worldPos.xyz);
     // Player clearance: preserve ground collision within 4m of player camera stance, full effect from 9m to 1000m
     float nearClearance = smoothstep(3.5, 9.0, distToCam);
-    float dispFade = (1.0 - smoothstep(80.0, 1200.0, distToCam)) * nearClearance;
+    float dispFade = (1.0 - smoothstep(80.0, 4000.0, distToCam)) * nearClearance;
 
     if (dispFade > 0.001) {
         float2 wp = worldPos.xz;
@@ -369,10 +369,10 @@ float calculateDEMConeShadow(float3 worldPos, float3 N, float3 L, float rawNdotL
     float minSunVis = 1.0;
     float t = 10.0 + dither * 16.0;
 
-    // 4. Progressive quadratic cone-tracing march (48 steps spanning over 35 km)
+    // 4. Progressive quadratic cone-tracing march (72 steps spanning over 35 km)
     [loop]
-    for (int i = 0; i < 48; ++i) {
-        float stepDist = 25.0 + 10.0 * float(i) + 0.65 * float(i * i);
+    for (int i = 0; i < 72; ++i) {
+        float stepDist = 18.0 + 8.0 * float(i) + 0.45 * float(i * i);
         t += stepDist;
         float3 rayPos = rayStart + L * t;
 
@@ -424,8 +424,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 L = normalize(pc.sunDir.xyz);
     float distToCam = length(pc.cameraPos.xyz - input.worldPos);
 
-    // Yield to 0.25m CDLOD Micro-Terrain in player vicinity
-    if (distToCam < 28.0) {
+    // Yield to 0.25m CDLOD Micro-Terrain in player vicinity (expanded to 66m)
+    if (distToCam < 66.0) {
         discard;
     }
 

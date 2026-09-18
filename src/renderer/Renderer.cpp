@@ -1382,39 +1382,40 @@ void Renderer::initTexturesAndDescriptors() {
         std::string path;
         bool isSrgb;
         bool clamp;
+        bool isGrayscale;
     };
 
     std::vector<TexDef> texDefs = {
-        // 0..1: Macro textures
-        {DATA_DIR "/processed/everest_satellite_albedo.jpg", true, true},
-        {DATA_DIR "/processed/everest_normal_map.png", false, true},
+        // 0..1: Macro textures (8192x8192 Ultra-8K)
+        {DATA_DIR "/processed/everest_satellite_albedo.jpg", true, true, false},
+        {DATA_DIR "/processed/everest_normal_map.jpg", false, true, false},
 
-        // 2..5: Rock PBR
-        {DATA_DIR "/textures/rock/albedo.jpg", true, false},
-        {DATA_DIR "/textures/rock/normal.jpg", false, false},
-        {DATA_DIR "/textures/rock/roughness.jpg", false, false},
-        {DATA_DIR "/textures/rock/displacement.jpg", false, false},
+        // 2..5: Rock PBR (8192x8192 Ultra-8K)
+        {DATA_DIR "/textures/rock/albedo.jpg", true, false, false},
+        {DATA_DIR "/textures/rock/normal.jpg", false, false, false},
+        {DATA_DIR "/textures/rock/roughness.jpg", false, false, true},
+        {DATA_DIR "/textures/rock/displacement.jpg", false, false, true},
 
-        // 6..9: Snow PBR
-        {DATA_DIR "/textures/snow/albedo.jpg", true, false},
-        {DATA_DIR "/textures/snow/normal.jpg", false, false},
-        {DATA_DIR "/textures/snow/roughness.jpg", false, false},
-        {DATA_DIR "/textures/snow/displacement.jpg", false, false},
+        // 6..9: Snow PBR (8192x8192 Ultra-8K)
+        {DATA_DIR "/textures/snow/albedo.jpg", true, false, false},
+        {DATA_DIR "/textures/snow/normal.jpg", false, false, false},
+        {DATA_DIR "/textures/snow/roughness.jpg", false, false, true},
+        {DATA_DIR "/textures/snow/displacement.jpg", false, false, true},
 
-        // 10..13: Scree PBR
-        {DATA_DIR "/textures/scree/albedo.jpg", true, false},
-        {DATA_DIR "/textures/scree/normal.jpg", false, false},
-        {DATA_DIR "/textures/scree/roughness.jpg", false, false},
-        {DATA_DIR "/textures/scree/displacement.jpg", false, false},
+        // 10..13: Scree PBR (8192x8192 Ultra-8K)
+        {DATA_DIR "/textures/scree/albedo.jpg", true, false, false},
+        {DATA_DIR "/textures/scree/normal.jpg", false, false, false},
+        {DATA_DIR "/textures/scree/roughness.jpg", false, false, true},
+        {DATA_DIR "/textures/scree/displacement.jpg", false, false, true},
 
-        // 14..17: Glacier PBR
-        {DATA_DIR "/textures/glacier/albedo.jpg", true, false},
-        {DATA_DIR "/textures/glacier/normal.jpg", false, false},
-        {DATA_DIR "/textures/glacier/roughness.jpg", false, false},
-        {DATA_DIR "/textures/glacier/displacement.jpg", false, false},
+        // 14..17: Glacier PBR (8192x8192 Ultra-8K)
+        {DATA_DIR "/textures/glacier/albedo.jpg", true, false, false},
+        {DATA_DIR "/textures/glacier/normal.jpg", false, false, false},
+        {DATA_DIR "/textures/glacier/roughness.jpg", false, false, true},
+        {DATA_DIR "/textures/glacier/displacement.jpg", false, false, true},
 
-        // 18: Geomorphology (R: Couloirs/Flow, G: Talus Scree, B: Ridge Crests, A: Wind Scour)
-        {DATA_DIR "/processed/everest_geomorphology.png", false, true}
+        // 18: Geomorphology (8192x8192 Ultra-8K)
+        {DATA_DIR "/processed/everest_geomorphology.png", false, true, false}
     };
 
     size_t totalTexCount = texDefs.size() + 3; // 19 PBR + DEM + MultiBounceGI + SnowDeform = 22 textures
@@ -1422,13 +1423,14 @@ void Renderer::initTexturesAndDescriptors() {
     std::vector<VkDescriptorImageInfo> imageInfos(totalTexCount);
     std::vector<VkWriteDescriptorSet> writes(totalTexCount);
 
-    std::cout << "[Renderer] Loading 19 PBR, Geomorphology & Satellite textures into GPU VRAM..." << std::endl;
+    std::cout << "[Renderer] Loading 19 Ultra-8K (8192x8192) PBR, Geomorphology & Satellite textures into GPU VRAM..." << std::endl;
     for (size_t i = 0; i < texDefs.size(); i++) {
         m_textures.push_back(std::make_unique<rhi::VulkanTexture>(
             *m_context,
             texDefs[i].path,
             texDefs[i].isSrgb,
-            texDefs[i].clamp
+            texDefs[i].clamp,
+            texDefs[i].isGrayscale
         ));
         imageInfos[i] = m_textures.back()->getDescriptorInfo();
 
@@ -2155,11 +2157,11 @@ glm::vec3 Renderer::getDemNormal(float worldX, float worldZ) const {
 }
 
 void Renderer::initMicroTerrainMesh() {
-    std::cout << "[Renderer] Generating 0.25m CDLOD Micro-Terrain Grid (80m x 80m, 320x320 quads)..." << std::endl;
-    constexpr uint32_t quads = 320;
+    std::cout << "[Renderer] Generating 0.25m Ultra-CDLOD Micro-Terrain Grid (160m x 160m, 640x640 quads)..." << std::endl;
+    constexpr uint32_t quads = 640;
     constexpr uint32_t vertsPerSide = quads + 1;
     constexpr float spacing = 0.25f;
-    constexpr float extent = 40.0f;
+    constexpr float extent = 80.0f;
 
     std::vector<rhi::Vertex> vertices;
     vertices.reserve(vertsPerSide * vertsPerSide);
@@ -2215,9 +2217,9 @@ void Renderer::initMicroTerrainMesh() {
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT
     );
 
-    std::cout << "[Renderer] CDLOD Micro-Terrain initialized ("
+    std::cout << "[Renderer] Ultra-CDLOD Micro-Terrain initialized ("
               << vertices.size() << " vertices, " << (indices.size() / 3)
-              << " triangles @ 0.25m resolution)." << std::endl;
+              << " triangles @ 0.25m resolution across 160m x 160m)." << std::endl;
 }
 
 void Renderer::initBoulderMeshAndInstances() {

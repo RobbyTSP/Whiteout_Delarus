@@ -14,22 +14,34 @@ namespace whiteout::rhi {
 VulkanTexture::VulkanTexture(const VulkanContext& context,
                              const std::string& filepath,
                              bool isSrgb,
-                             bool clampToEdge)
+                             bool clampToEdge,
+                             bool forceGrayscale)
     : m_context(context) {
-    int texWidth, texHeight, texChannels;
-    stbi_uc* pixels = stbi_load(filepath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    int texWidth = 0, texHeight = 0, texChannels = 0;
+    bool loadAsGrey = forceGrayscale;
+    if (!loadAsGrey) {
+        int checkW = 0, checkH = 0, checkC = 0;
+        if (stbi_info(filepath.c_str(), &checkW, &checkH, &checkC)) {
+            if (checkC == 1) {
+                loadAsGrey = true;
+            }
+        }
+    }
+
+    int desiredChannels = loadAsGrey ? STBI_grey : STBI_rgb_alpha;
+    stbi_uc* pixels = stbi_load(filepath.c_str(), &texWidth, &texHeight, &texChannels, desiredChannels);
 
     if (!pixels) {
         std::cerr << "[VulkanTexture] Warning: Failed to load texture file: " << filepath
                   << ". Using fallback 1x1 magenta texture." << std::endl;
         uint8_t fallback[4] = {255, 0, 255, 255};
-        createTextureImage(fallback, 1, 1, isSrgb);
+        createTextureImage(fallback, 1, 1, isSrgb, 4);
         createImageView(isSrgb);
         createTextureSampler(clampToEdge);
         return;
     }
 
-    createTextureImage(pixels, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), isSrgb);
+    createTextureImage(pixels, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), isSrgb, loadAsGrey ? 1 : 4);
     stbi_image_free(pixels);
 
     createImageView(isSrgb);
@@ -40,7 +52,7 @@ VulkanTexture::VulkanTexture(const VulkanContext& context,
                              uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     : m_context(context) {
     uint8_t pixel[4] = {r, g, b, a};
-    createTextureImage(pixel, 1, 1, false);
+    createTextureImage(pixel, 1, 1, false, 4);
     createImageView(false);
     createTextureSampler(true);
 }
@@ -73,12 +85,17 @@ VulkanTexture::~VulkanTexture() {
     }
 }
 
-void VulkanTexture::createTextureImage(const void* pixelData, uint32_t width, uint32_t height, bool isSrgb) {
+void VulkanTexture::createTextureImage(const void* pixelData, uint32_t width, uint32_t height, bool isSrgb, uint32_t channels) {
     m_extent = {width, height};
-    m_format = isSrgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+    if (channels == 1) {
+        m_format = VK_FORMAT_R8_UNORM;
+    } else {
+        m_format = isSrgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+    }
     m_mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 
-    VkDeviceSize imageSize = width * height * 4;
+    VkDeviceSize bytesPerPixel = (channels == 1) ? 1 : 4;
+    VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * height * bytesPerPixel;
 
     // 1. Host Staging Buffer
     VulkanBuffer stagingBuffer(
@@ -404,7 +421,7 @@ void VulkanTexture::createTextureSampler(bool clampToEdge) {
     samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
     samplerInfo.minLod = 0.0f;
     samplerInfo.maxLod = static_cast<float>(m_mipLevels);
-    samplerInfo.mipLodBias = 0.0f;
+    samplerInfo.mipLodBias = -0.5f; // Sharpen 8K anisotropic detail
 
     if (vkCreateSampler(device, &samplerInfo, nullptr, &m_sampler) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create texture sampler!");

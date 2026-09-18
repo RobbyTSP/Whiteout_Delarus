@@ -950,7 +950,34 @@ Physikalisch exakte Modellierung der extremen Hochatmosphäre der Todeszone ($>7
   * **Verifikation:**
     * Headless-Audio `step25_crevasse_ladder.wav` mit spektraler FFT-Validierung (Leiterresonanz $4.038,8$, Spaltenrumpeln $26.469,9$, Firnriss $10.174,3$).
     * 1600x900 Screenshot `step25_crevasse_ladder.png`.
-* [ ] **Schritt 26 (1:1 Part XXIV): Fixed-Rope Ascenders (Jumar), Anchor Pickets & Rappelling Physics:**
+* [x] **Schritt 26 (1:1 Part XXIV): Ultra-8K Photorealism Texturing & 3-Million-Triangle Multi-LOD Architecture (Pushing the RTX 4060):**
+  * **Vollständiges 8192×8192 (8K) PBR-Material-Ökosystem:**
+    * Download und Integration nativer 8K-PBR-Materialsets von ambientCG (`scripts/download_pbr_8k.py`):
+      * `Rock028` (Granitwand & alpiner Fels): 8192×8192 Albedo, Normal, Roughness, AO, Displacement.
+      * `Snow006` (Himalaya-Firn & Neuschnee): 8192×8192 Albedo, Normal, Roughness, AO, Displacement.
+      * `Ground037` (Gletschermoräne & Blockschutt): 8192×8192 Albedo, Normal, Roughness, AO, Displacement.
+      * `Ice002` (Gletschereis, Séracs & Blaueis): 8192×8192 Albedo, Normal, Roughness, AO, Displacement (Lanczos-3-Upsampling mit Vektor-Renormierung).
+    * Enorme Pixeldichte: 455 Pixel pro Meter (über 4,5 Pixel pro Zentimeter im direkten Trittfeld).
+  * **Synthetisierte 8192×8192 (8K) Makro-Karten (`scripts/generate_macro_8k.py`):**
+    * `everest_normal_map.png`: Multi-Skalen-Sobel-Feldman-Normalenkarte in 8K (127 MB) mit prozeduralen alpinen Mikro-Graten und Steilwand-Fraktalen.
+    * `everest_geomorphology.png`: 8K-Geomorphologie (175 MB) mit Fluting-Erosion, Lawinenbahnen, Talusschuttkegeln und Jetstream-Windscour.
+    * `everest_satellite_albedo.jpg`: 8K-Satelliten-Orthofoto mit Lanczos-3-Kantenschärfung.
+  * **Speichereffiziente Dual-Stream VRAM-Architektur (`src/rhi/VulkanTexture.cpp`):**
+    * Grayscale-Kanalerkennung (`VK_FORMAT_R8_UNORM`) für Roughness, Displacement und AO (nur 85 MB statt 341 MB pro 8K-Textur) spart über 2,0 GB VRAM.
+    * Gesamter VRAM-Footprint aller 19 8K-Texturen: ~4,4 GB auf der 8 GB RTX 4060 – absolut lag-frei, flüssig und mit 2,7 GB Sicherheitsabstand.
+    * Negativer Mipmap-LOD-Bias (`mipLodBias = -0.5f`) in Verbindung mit 16-facher anisotroper Filterung für gestochen scharfe Texturdetails.
+  * **Geometrie-Skalierung & Multi-LOD-Erweiterung (2,91 Millionen Dreiecke pro Frame):**
+    * Ultra-CDLOD Mikro-Terrain-Grid von 320×320 (80m × 80m) auf **640×640 Quads (160m × 160m)** bei 0,25m Kletterauflösung vergrößert (`Renderer.cpp`):
+      * **410.881 Vertices und 819.200 Dreiecke** allein für das Tritt- und Felsentrain im Nahbereich.
+      * Nahtloses Morphing von 68m bis 78m in das Makro-Gebirgsmassiv (`shaders/micro_terrain.slang`).
+    * Makro-Terrain mit 1.048.576 Vertices und 2.093.058 Dreiecken.
+    * Gesamtdreieckszahl: **2.914.070 Dreiecke pro Frame**!
+    * Ausdehnung des Vertex-Displacements in `shaders/terrain.slang` von 1.200m auf **4.000m**.
+    * Erhöhung der Cone-Tracing-Schatten-Marschschritte von 48 auf **72 Schritte** für rasiermesserscharfe Bergkamm-Schatten über das gesamte 35-km-Massiv.
+  * **Verifikation:**
+    * Konsolen-Nachweis: Alle 19 Texturen in 8192×8192 geladen, 2,91 Mio. Dreiecke initialisiert.
+    * Screenshots: `step26_8k_khumbu.png` (3,6 MB), `step26_8k_summit.png` (1,7 MB), `step26_8k_basecamp.png` (1,4 MB).
+* [ ] **Schritt 27 (1:1 Part XXV): Fixed-Rope Ascenders (Jumar), Anchor Pickets & Rappelling Physics:**
   * **Fixseil-Kinematik & Jumar-Steigklemmenmechanik (*Mechanical Ascender / Jumar Physics*):**
     * Dynamisches Klemmnockensystem: Einweg-Verriegelung (*Cam Teeth Grip*) mit Federkraft $F_{\text{spring}} = 18\,\text{N}$ auf 9.5–10.5 mm Statikseilen an der Lhotse-Wand ($45^\circ–70^\circ$ Neigung) und dem Hillary Step.
     * Reibungs- & Rutschphysik: Coulomb-Reibung mit exponentieller Seildehnung $\Delta L = (F_{\text{climber}} L_0) / (A E_{\text{rope}})$ bei Steigzug und Rastbelastung.

@@ -16,12 +16,12 @@ int main(int argc, char* argv[]) {
     (void)argv;
 
     std::cout << "=========================================================\n";
-    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 25 (1:1 PART XXIII)\n";
-    std::cout << " Dynamic Crevasse Bridges, Bergschrund Tectonics & Aluminum Ladder Physics\n";
-    std::cout << " Structures: 4-Section Sectional Aluminum Ladders & Sintered Firn Arch Bridges\n";
-    std::cout << " Mechanics: Euler-Bernoulli Elastic Deflection, Dynamic Sway & Bending Failure\n";
-    std::cout << " Terrain: Khumbu Icefall 25m Crevasses & Lhotse Face Mega-Bergschrund\n";
-    std::cout << " Acoustics: Metallic Rung Clinks, Crampon Scrapes & Chasm Cavity Collapse\n";
+    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 26 (1:1 PART XXIV)\n";
+    std::cout << " Ultra-8K Photorealism Texturing & 3-Million-Triangle Multi-LOD Architecture\n";
+    std::cout << " Texturing: 8192x8192 PBR Sets (Rock, Snow, Scree, Glacier) + 8K Macro Maps\n";
+    std::cout << " Geometry: 2.91M Triangles / Frame (160m x 160m Ultra-CDLOD @ 0.25m + 1:1 Massif)\n";
+    std::cout << " VRAM: Dual-Stream R8_UNORM / RGBA8_SRGB Pipeline with -0.5 Aniso LOD Bias\n";
+    std::cout << " Shading: 4,000m Vertex Displacement & 72-Step Raymarched Massif Shadows\n";
     std::cout << " Controls:\n";
     std::cout << "   - Mouse Move: Look around (Click window to capture mouse)\n";
     std::cout << "   - W / A / S / D: Walk forward / left / back / right\n";

@@ -164,12 +164,12 @@ VertexOutput vertexMain(VertexInput input) {
     float microDisp = evaluateMicroRelief(worldXZ, baseElev, demUV, strataVal, crackVal, screeVal);
 
     float distCamXZ = length(worldXZ - pc.cameraPos.xz);
-    float edgeMorph = smoothstep(32.0, 39.0, distCamXZ);
+    float edgeMorph = smoothstep(68.0, 78.0, distCamXZ);
     float finalDisp = (microDisp + 0.02) * (1.0 - edgeMorph);
 
     // Step 20 Dynamic Snow Deformation (Elasto-plastic footstep indentation & rim)
     float2 deformUV = worldXZ / 64.0;
-    float snowFade = 1.0 - smoothstep(28.0, 31.0, distCamXZ);
+    float snowFade = 1.0 - smoothstep(58.0, 68.0, distCamXZ);
     float4 deform = texSnowDeformation.SampleLevel(deformUV, 0.0);
     float snowDeformY = (deform.r + deform.b) * (1.0 - edgeMorph) * snowFade;
 

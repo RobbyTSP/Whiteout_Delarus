@@ -13,7 +13,8 @@ public:
     VulkanTexture(const VulkanContext& context,
                   const std::string& filepath,
                   bool isSrgb = true,
-                  bool clampToEdge = false);
+                  bool clampToEdge = false,
+                  bool forceGrayscale = false);
 
     // Fallback constructor for solid 1x1 pixel textures
     VulkanTexture(const VulkanContext& context,
@@ -45,7 +46,7 @@ public:
     }
 
 private:
-    void createTextureImage(const void* pixelData, uint32_t width, uint32_t height, bool isSrgb);
+    void createTextureImage(const void* pixelData, uint32_t width, uint32_t height, bool isSrgb, uint32_t channels = 4);
     void createFloatTextureImage(const float* floatData, uint32_t width, uint32_t height);
     void generateMipmaps(VkFormat imageFormat, int32_t texWidth, int32_t texHeight);
     void createImageView(bool isSrgb);

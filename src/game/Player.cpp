@@ -580,7 +580,7 @@ std::string Player::getTelemetryString() const {
         } else if (dCwm < 500.0f) {
             ss << " | [HOTSPOT: Western Cwm (6,400m) - Das Glutofen-Schneelicht GI]";
         } else {
-            ss << " | [CDLOD: 0.25m Kletter-Auflösung]";
+            ss << " | [Ultra 8K PBR | CDLOD: 160m @ 0.25m | 2.91M Tris]";
         }
     } else {
         ss << "[DRONE FLY] "

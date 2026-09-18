@@ -31,7 +31,7 @@
     "raw_float32": "everest_dem_float32.bin",
     "heightmap_16bit": "everest_heightmap_16bit.png",
     "satellite_albedo": "everest_satellite_albedo.jpg",
-    "normal_map": "everest_normal_map.png"
+    "normal_map": "everest_normal_map.jpg"
   },
   "vulkan_binding_guidelines": {
     "terrain_scale_x": 34610.51254563512,
