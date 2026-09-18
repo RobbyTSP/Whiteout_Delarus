@@ -93,6 +93,26 @@ struct CrownSnapEvent {
     float panEnd = 0.6f;
 };
 
+// Step 25: Metallic Ladder Rung Clink & Tension Cable Creak
+struct LadderStepAudioEvent {
+    bool active = false;
+    float timeSec = 0.0f;
+    float durationSec = 0.24f;
+    float intensity = 1.0f;
+    float pan = 0.0f;
+    int rungIndex = 0;
+};
+
+// Step 25: Snowbridge Firn Fracture & Chasm Cavity Collapse
+struct BridgeCollapseAudioEvent {
+    bool active = false;
+    float timeSec = 0.0f;
+    float durationSec = 2.4f;
+    float intensity = 1.0f;
+    float pan = 0.0f;
+    float chasmDepth = 25.0f;
+};
+
 class AlpineAudioEngine {
 public:
     AlpineAudioEngine();
@@ -117,6 +137,10 @@ public:
     // Step 24: Weak-Layer "Whumpf" and Crown Fracture Tensile Snap
     void triggerWhumpf(const glm::vec3& worldPos, float intensity = 1.0f);
     void triggerCrownSnap(const glm::vec3& worldPos, float crackLength = 180.0f);
+
+    // Step 25: Metallic Ladder Rungs & Crevasse Bridge Collapse
+    void triggerLadderStep(const glm::vec3& worldPos, float intensity = 1.0f, int rungIndex = 0);
+    void triggerBridgeCollapse(const glm::vec3& worldPos, float chasmDepth = 25.0f, float intensity = 1.0f);
 
     // Audio offline renderer to WAV file (48kHz 16-bit stereo) for testing & verification
     bool renderToWav(
@@ -189,6 +213,10 @@ private:
     // Step 24: Weak-Layer "Whumpf" & Crown Fracture Snap Events
     WhumpfEvent m_whumpf;
     CrownSnapEvent m_crownSnap;
+
+    // Step 25: Crevasse & Ladder Acoustics
+    LadderStepAudioEvent m_ladderStep;
+    BridgeCollapseAudioEvent m_bridgeCollapse;
 
     // Periodic ambient ice cracking timer
     float m_ambientCrackTimer = 5.0f;

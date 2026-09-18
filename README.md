@@ -927,15 +927,43 @@ Physikalisch exakte Modellierung der extremen Hochatmosphäre der Todeszone ($>7
   * **Verifikation:**
     * Paritätsnachweis via Headless-Audio (`step24_slab_avalanche.wav`) mit FFT-Validierung: Dominante 28.9 Hz Sub-Bass-Spitze (Whumpf) und 19.008 spektrale Energieeinheiten im Rissband (1.2–2.4 kHz).
     * 1600x900 Screenshots (`step24_slab_avalanche.png` und `step24_slab_overview.png`).
-* [ ] **Schritt 25 (1:1 Part XXIII): Dynamic Crevasse Bridges, Bergschrund Tectonics & Aluminum Ladder Physics:**
+* [x] **Schritt 25 (1:1 Part XXIII): Dynamic Crevasse Bridges, Bergschrund Tectonics & Aluminum Ladder Physics:**
   * **Dynamische Gletscherspalten-Schneebrücken (*Snowbridge Creep & Failure*):**
-    * Modellierung von Firn-Gewölbebrücken über Gletscherspalten im Khumbu-Eisfall.
-    * Plastische Kriech-Durchbiegung unter Eigenlast und Spannungsspitzen bei Überschreitung der Grenzbiegespannung $\sigma_{\text{bend}} > \sigma_{\text{crit}}$ durch Bergsteigergewicht.
+    * Modellierung von Firn-Gewölbebrücken über bis zu 25 m tiefen Gletscherspalten im Khumbu-Eisfall und Lhotse-Bergschrund (`src/game/CrevasseBridgeSystem.hpp` / `.cpp`).
+    * Viskoelastisches Kriechverhalten (*Firn Creep*) unter Eigengewicht $w = \rho g W h$ und Sonneneinstrahlung mit kontinuierlicher Durchbiegungszunahme.
+    * Euler-Bernoulli- & Navier-Biegespannungsberechnung: $\sigma_{\text{max}} = (M_{\text{self}} + M_{\text{player}}) / Z$ mit elastischem Widerstandsmoment $Z = W h^2 / 6$.
+    * Sprödbruchversagen bei Überschreitung der kritischen Grenzbiegespannung $\sigma_{\text{crit}} \approx 32–42\,\text{kPa}$ (ausgelöst durch Spielergewicht, dynamische Sprunglast oder Taste `J`), gravitativer Blockabsturz und Sturz in die 25 m Gletscherspalte.
   * **Bergschrund-Tektonik & Randkluft-Morphologie:**
-    * Trennzone zwischen steifem Wandfirn und fließendem Tal-Eisstrom mit dynamischer Zerrungsgeometrie.
+    * Tektonische Trennfuge zwischen ruhendem Steilwand-Eis (Lhotse Face) und abfließendem Talgletscherstrom (Khumbu-Gletscher).
+    * Dehnungsfluss (*Extensional Strain Rate*) mit kontinuierlicher Fugenöffnung ($1.6–2.4\,\text{mm/Tag}$), 5–7.5 m Überbrückungsweite und 28–35 m Tiefenabgrund.
   * **Expeditions-Aluminiumleitern (*Sectional Crevasse Ladders*):**
-    * 4-teilige zusammensteckbare Aluminiumleitern mit elastischer Trägerbiegung nach Euler-Bernoulli.
-    * Physikalisches Schwanken, Resonanzschwingungen beim Balancieren mit Steigeisen und metallisches Klink-Feedback bei jedem Schritt.
+    * 4-teilige zusammensteckbare 6061-T6-Aluminium-Trägerleitern ($E = 69\,\text{GPa}$, Flächenträgheitsmoment $I = 3.6 \times 10^{-7}\,\text{m}^4$) mit Spannseilen und Reepschnursicherungen.
+    * Elastische Trägerdurchbiegung nach Euler-Bernoulli: $\delta_{\text{mid}} = F_{\text{dyn}} L^3 / (48 E I)$ mit parabelförmigem Verlauf $\delta(x) = 4 \delta_{\text{mid}} s (1 - s)$.
+    * Unterdämpfte harmonische Vertikalschwingung ($\omega_n \approx 2.85\,\text{Hz}$, Dämpfung $\zeta = 0.08$) und Roll-Schwanken ($\pm 12.6^\circ$) beim Balancieren mit Steigeisen.
+  * **Akustische Modalsynthese & Resonanz-Kopplung:**
+    * **Metallischer Sprossenschlag:** Rohrförmige Aluminium-Resonanzmoden bei $920\,\text{Hz}$, $1.840\,\text{Hz}$ und $2.650\,\text{Hz}$ kombiniert mit stochastischem Steigeisen-Kratzen ($3.800–5.200\,\text{Hz}$).
+    * **Schneebrücken-Kollaps:** Spröder Firn-Spannungsriss ($780\,\text{Hz}$) gefolgt von tiefem Gletscherspalten-Sub-Bass-Rumpeln ($25–85\,\text{Hz}$) mit 20 ms Kavernen-Reflexionen.
+  * **GPU-Rendering & PBR-Material (`shaders/ladder.slang`):**
+    * Cook-Torrance GGX PBR-Shader für eloxiertes 6061-T6 Aluminium (Metallizität 0.98, Rauheit 0.22, F0 0.91).
+    * Prozeduraler Schneeansatz auf den Oberseiten der Sprossen und Holme ($N \cdot Up > 0.6$).
+    * Prozedurale 3D-Box- und Catenary-Geometrie für Holme, Sprossen, Führungsseile und Firnbögen (3.624 Vertices, 1.812 Dreiecke) ohne Pipeline-Overhead über Vulkan 1.4 Dynamic Rendering.
+  * **Verifikation:**
+    * Headless-Audio `step25_crevasse_ladder.wav` mit spektraler FFT-Validierung (Leiterresonanz $4.038,8$, Spaltenrumpeln $26.469,9$, Firnriss $10.174,3$).
+    * 1600x900 Screenshot `step25_crevasse_ladder.png`.
+* [ ] **Schritt 26 (1:1 Part XXIV): Fixed-Rope Ascenders (Jumar), Anchor Pickets & Rappelling Physics:**
+  * **Fixseil-Kinematik & Jumar-Steigklemmenmechanik (*Mechanical Ascender / Jumar Physics*):**
+    * Dynamisches Klemmnockensystem: Einweg-Verriegelung (*Cam Teeth Grip*) mit Federkraft $F_{\text{spring}} = 18\,\text{N}$ auf 9.5–10.5 mm Statikseilen an der Lhotse-Wand ($45^\circ–70^\circ$ Neigung) und dem Hillary Step.
+    * Reibungs- & Rutschphysik: Coulomb-Reibung mit exponentieller Seildehnung $\Delta L = (F_{\text{climber}} L_0) / (A E_{\text{rope}})$ bei Steigzug und Rastbelastung.
+    * Seilvereisung & Cam-Slip: Reduzierter Reibungskoeffizient bei Reif- und Glatteisüberzug mit Mikrorutschphasen vor dem vollen Zähnebiss.
+  * **Schneeanker- & Eisschrauben-Statik (*Deadman & Ice Screw Anchors*):**
+    * T-Profile-Aluminium-Schneeanker (*Deadman Pickets*) und geriffelte Chromstahl-Eisschrauben (22 cm) an Zwischensicherungsständen.
+    * Scherfestigkeitsberechnung im verdichteten Firn und Hartblankeis: Ausreißlast $F_{\text{pullout}} = c \cdot A_{\text{shear}} + \sigma_n \tan \phi$.
+  * **Abseil-Physik (*Figure-8 & ATC Rappelling*):**
+    * Seilreibungsdämpfung nach der Euler-Eytelwein-Formel $T_2 = T_1 e^{\mu \theta}$ beim geführten Abseilen über Steilstufen (Hillary Step / Geneva Spur).
+    * Reibungserwärmung des Sicherungsgeräts und Bremsseilkontrolle.
+  * **Multimodale Akustik (Klemmen-Klick & Seilspannungssingen):**
+    * Metallisches Einrasten und Gleiten der Steigklemme auf gefrorenem Polyamid-Seilmantel.
+    * Äolisches und spannungsinduziertes „Seilsingen“ (*High-Tension Aeolian Whistle*) bei Starkwindböen.
 
 
 

@@ -29,6 +29,7 @@ struct WindowEventState {
     bool toggleBlizzard = false;
     bool toggleLiveWeather = false;
     bool triggerAvalanche = false;
+    bool triggerCrevasseCollapse = false;
     bool toggleGoggles = false;
 
     // Mouse state

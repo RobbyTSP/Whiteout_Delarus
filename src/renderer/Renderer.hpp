@@ -11,6 +11,10 @@
 #include <memory>
 #include <vector>
 
+namespace whiteout::game {
+    struct AluminumLadder;
+}
+
 namespace whiteout::renderer {
 
 // Step 22 (1:1 Part XX): Visceral Mountaineer Cryo-Optics
@@ -44,7 +48,8 @@ public:
         float windSpeed = 30.0f,
         const CryoOpticsState& cryoOptics = CryoOpticsState{},
         const glm::vec4& crownOrigin = glm::vec4(0.0f),
-        const glm::vec4& crownParams = glm::vec4(0.0f)
+        const glm::vec4& crownParams = glm::vec4(0.0f),
+        const std::vector<whiteout::game::AluminumLadder>* ladders = nullptr
     );
     void onResize();
     bool saveScreenshot(const std::string& filepath);
@@ -258,6 +263,23 @@ private:
     std::unique_ptr<rhi::VulkanBuffer> m_boulderInstanceBuffer;
     uint32_t m_boulderIndexCount = 0;
     uint32_t m_boulderInstanceCount = 0;
+
+    // Step 25: 4-Section Sectional Aluminum Crevasse Ladders
+    void initLadderMeshAndPipeline();
+    void renderLadders(
+        VkCommandBuffer cmd,
+        const core::Camera& camera,
+        const glm::vec3& sunDir,
+        const glm::vec3& sunColor,
+        float blizzardFactor,
+        float windSpeed,
+        float totalTime,
+        const std::vector<whiteout::game::AluminumLadder>* ladders
+    );
+    std::unique_ptr<rhi::VulkanPipeline> m_ladderPipeline;
+    std::unique_ptr<rhi::VulkanBuffer> m_ladderVertexBuffer;
+    std::unique_ptr<rhi::VulkanBuffer> m_ladderIndexBuffer;
+    uint32_t m_ladderIndexCount = 0;
 
     // Multi-texture PBR & Satellite resources
     void initTexturesAndDescriptors();

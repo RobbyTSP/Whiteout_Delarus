@@ -353,6 +353,41 @@ void AlpineAudioEngine::triggerCrownSnap(const glm::vec3& worldPos, float crackL
               << crackLength << "m" << std::endl;
 }
 
+void AlpineAudioEngine::triggerLadderStep(const glm::vec3& worldPos, float intensity, int rungIndex) {
+    std::lock_guard<std::mutex> lock(m_audioMutex);
+    m_ladderStep.active = true;
+    m_ladderStep.timeSec = 0.0f;
+    m_ladderStep.durationSec = 0.22f;
+    m_ladderStep.intensity = std::clamp(intensity, 0.4f, 2.0f);
+    m_ladderStep.rungIndex = rungIndex;
+
+    glm::vec3 toSource = worldPos - m_listenerPos;
+    if (glm::length(toSource) > 0.1f) {
+        m_ladderStep.pan = std::clamp(glm::dot(glm::normalize(toSource), m_listenerRight), -0.8f, 0.8f);
+    } else {
+        m_ladderStep.pan = 0.0f;
+    }
+}
+
+void AlpineAudioEngine::triggerBridgeCollapse(const glm::vec3& worldPos, float chasmDepth, float intensity) {
+    std::lock_guard<std::mutex> lock(m_audioMutex);
+    m_bridgeCollapse.active = true;
+    m_bridgeCollapse.timeSec = 0.0f;
+    m_bridgeCollapse.durationSec = 2.4f;
+    m_bridgeCollapse.chasmDepth = chasmDepth;
+    m_bridgeCollapse.intensity = std::clamp(intensity, 0.5f, 2.5f);
+
+    glm::vec3 toSource = worldPos - m_listenerPos;
+    if (glm::length(toSource) > 0.1f) {
+        m_bridgeCollapse.pan = std::clamp(glm::dot(glm::normalize(toSource), m_listenerRight), -0.8f, 0.8f);
+    } else {
+        m_bridgeCollapse.pan = 0.0f;
+    }
+
+    std::cout << "[Audio] Snowbridge catastrophic collapse into " << chasmDepth
+              << "m crevasse triggered!" << std::endl;
+}
+
 void AlpineAudioEngine::generateAudioFrame(float& left, float& right, float dt) {
     left = 0.0f;
     right = 0.0f;
@@ -540,6 +575,76 @@ void AlpineAudioEngine::generateAudioFrame(float& left, float& right, float dt) 
         }
     }
 
+    // =========================================================================
+    // 3d. Step 25: Metallic Ladder Rung Ping & Crampon Steel Impact
+    // =========================================================================
+    if (m_ladderStep.active) {
+        m_ladderStep.timeSec += dt;
+        if (m_ladderStep.timeSec >= m_ladderStep.durationSec) {
+            m_ladderStep.active = false;
+        } else {
+            float t = m_ladderStep.timeSec;
+            // Tubular aluminum resonant modes: 920 Hz, 1840 Hz, 2650 Hz
+            float f0 = 920.0f + static_cast<float>(m_ladderStep.rungIndex % 7) * 28.0f;
+            float f1 = f0 * 2.0f;
+            float f2 = f0 * 2.88f;
+
+            float envMetal = std::exp(-22.0f * t);
+            float metalTone = (0.60f * std::sin(6.2831853f * f0 * t) +
+                               0.30f * std::sin(6.2831853f * f1 * t) +
+                               0.15f * std::sin(6.2831853f * f2 * t)) * envMetal;
+
+            // Crampon steel spike point scrape on aluminum lip
+            float envScrape = std::exp(-45.0f * t);
+            float steelScrape = getWhiteNoise() * envScrape * 0.45f;
+
+            float stepSample = (metalTone + steelScrape) * m_ladderStep.intensity;
+            float panL = std::clamp(1.0f - m_ladderStep.pan * 0.5f, 0.2f, 1.2f);
+            float panR = std::clamp(1.0f + m_ladderStep.pan * 0.5f, 0.2f, 1.2f);
+
+            left += stepSample * panL * 0.70f;
+            right += stepSample * panR * 0.70f;
+
+            echoSendL += stepSample * panL * 0.35f;
+            echoSendR += stepSample * panR * 0.35f;
+        }
+    }
+
+    // =========================================================================
+    // 3e. Step 25: Snowbridge Firn Fracture & Crevasse Chasm Cavity Collapse
+    // =========================================================================
+    if (m_bridgeCollapse.active) {
+        m_bridgeCollapse.timeSec += dt;
+        if (m_bridgeCollapse.timeSec >= m_bridgeCollapse.durationSec) {
+            m_bridgeCollapse.active = false;
+        } else {
+            float t = m_bridgeCollapse.timeSec;
+            float progress = t / m_bridgeCollapse.durationSec;
+
+            // 1. Initial firn tension crack & shear burst (t < 0.25s)
+            float crackEnv = (t < 0.25f) ? (std::sin(t * 12.566f) * std::exp(-10.0f * t)) : 0.0f;
+            float crackOsc = std::sin(6.2831853f * 780.0f * t) * 0.5f + getWhiteNoise() * 0.8f;
+            float crackSound = crackOsc * crackEnv * 1.6f;
+
+            // 2. Chasm tumbling rumble & ice blocks plummeting into 25m crevasse
+            float rumbleEnv = std::clamp(t / 0.3f, 0.0f, 1.0f) * (1.0f - progress);
+            float lowRumble = m_windRumbleFilter.process(getPinkNoise()) * rumbleEnv * 1.8f;
+
+            // 3. Crevasse cavity resonance (comb filter delay ~20ms reflecting between narrow ice walls)
+            float cavityMod = std::sin(6.2831853f * 48.0f * t) * 0.3f;
+            float collapseSample = (crackSound + lowRumble * (1.0f + cavityMod)) * m_bridgeCollapse.intensity;
+
+            float panL = std::clamp(1.0f - m_bridgeCollapse.pan * 0.5f, 0.2f, 1.2f);
+            float panR = std::clamp(1.0f + m_bridgeCollapse.pan * 0.5f, 0.2f, 1.2f);
+
+            left += collapseSample * panL * 0.85f;
+            right += collapseSample * panR * 0.85f;
+
+            echoSendL += collapseSample * panL * 0.75f;
+            echoSendR += collapseSample * panR * 0.75f;
+        }
+    }
+
     // Feed collapsing sound into acoustic delay line
     m_echoDelayLine.write(echoSendL, echoSendR);
 
@@ -682,8 +787,14 @@ bool AlpineAudioEngine::renderToWav(
         // Trigger all 4 material footsteps sequentially to verify distinct acoustics
         if (i == static_cast<uint32_t>(0.4f * static_cast<float>(sRate))) {
             triggerFootstep(game::AlpineSurfaceType::GlacialBlueIce, 1.2f, false);
+        } else if (i == static_cast<uint32_t>(0.85f * static_cast<float>(sRate))) {
+            // Step 25: Metallic ladder rung impact proof
+            triggerLadderStep(m_listenerPos + glm::vec3(0.0f, -1.0f, 2.0f), 1.4f, 15);
         } else if (i == static_cast<uint32_t>(1.5f * static_cast<float>(sRate))) {
             triggerFootstep(game::AlpineSurfaceType::HardFirnSnow, 1.1f, true);
+        } else if (i == static_cast<uint32_t>(2.0f * static_cast<float>(sRate))) {
+            // Step 25: Snowbridge firn fracture & crevasse chasm collapse proof
+            triggerBridgeCollapse(m_listenerPos + glm::vec3(5.0f, -5.0f, 10.0f), 25.0f, 1.4f);
         } else if (i == static_cast<uint32_t>(2.6f * static_cast<float>(sRate))) {
             triggerFootstep(game::AlpineSurfaceType::TalusScreeSlope, 1.2f, false);
         } else if (i == static_cast<uint32_t>(3.7f * static_cast<float>(sRate))) {

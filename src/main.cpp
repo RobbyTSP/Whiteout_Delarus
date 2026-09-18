@@ -16,12 +16,12 @@ int main(int argc, char* argv[]) {
     (void)argv;
 
     std::cout << "=========================================================\n";
-    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 24 (1:1 PART XXII)\n";
-    std::cout << " Dynamic Snow Creep, Slab Fractures & Weak-Layer Avalanche Mechanics\n";
-    std::cout << " Snowpack: Stratified Cohesive Slab, Depth Hoar Weak-Layer & Bed Surface\n";
-    std::cout << " Mechanics: Surcharge Stress & Stability S, Downhill Creep, Leeward Wind Drift\n";
-    std::cout << " Crown Fracture: Propagating Anrisskante Step, Whumpf Acoustics & Slab Release\n";
-    std::cout << " Acoustics: 35km DEM Acoustic Raytracing, Nuptse Echoes & Aeolian Ridge Wind\n";
+    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 25 (1:1 PART XXIII)\n";
+    std::cout << " Dynamic Crevasse Bridges, Bergschrund Tectonics & Aluminum Ladder Physics\n";
+    std::cout << " Structures: 4-Section Sectional Aluminum Ladders & Sintered Firn Arch Bridges\n";
+    std::cout << " Mechanics: Euler-Bernoulli Elastic Deflection, Dynamic Sway & Bending Failure\n";
+    std::cout << " Terrain: Khumbu Icefall 25m Crevasses & Lhotse Face Mega-Bergschrund\n";
+    std::cout << " Acoustics: Metallic Rung Clinks, Crampon Scrapes & Chasm Cavity Collapse\n";
     std::cout << " Controls:\n";
     std::cout << "   - Mouse Move: Look around (Click window to capture mouse)\n";
     std::cout << "   - W / A / S / D: Walk forward / left / back / right\n";
@@ -39,6 +39,7 @@ int main(int argc, char* argv[]) {
     std::cout << "   - B: Toggle Blizzard / Whiteout Mode (30m Visibility & Spindrift)\n";
     std::cout << "   - L: Toggle Live Open-Meteo Weather Synchronization\n";
     std::cout << "   - K: Trigger Slab Fracture & Avalanche (Weak-Layer Collapse & Crown Tear)\n";
+    std::cout << "   - J: Collapse Fragile Crevasse Snow Bridge (Shear Failure & Chasm Plunge)\n";
     std::cout << "   - ESC: Release mouse capture / Exit\n";
     std::cout << "=========================================================\n" << std::endl;
 
@@ -86,6 +87,14 @@ int main(int argc, char* argv[]) {
             renderer.triggerAvalanche(pos);
         });
 
+        // Step 25: Crevasse Bridge & Aluminum Ladder Callbacks
+        player.setLadderStepCallback([&audioEngine](const glm::vec3& pos, float intensity, int rungIndex) {
+            audioEngine.triggerLadderStep(pos, intensity, rungIndex);
+        });
+        player.setBridgeCollapseCallback([&audioEngine](const glm::vec3& pos, float chasmDepth, float intensity) {
+            audioEngine.triggerBridgeCollapse(pos, chasmDepth, intensity);
+        });
+
         whiteout::core::Timer timer;
 
         // Check for CLI arguments: --preset <N>, --screenshot <path>, --cam <x> <y> <z> <yaw> <pitch>, --time <N>, --blizzard
@@ -97,6 +106,7 @@ int main(int argc, char* argv[]) {
         glm::vec3 customCamPos(0.0f);
         float customYaw = 0.0f, customPitch = 0.0f;
         bool triggerAvalancheOnStart = false;
+        bool triggerBridgeCollapseOnStart = false;
         bool hasGogglesOverride = false;
         bool overrideGoggles = true;
         float overrideFog = -1.0f;
@@ -114,6 +124,8 @@ int main(int argc, char* argv[]) {
                 initialPreset = std::atoi(argv[i + 1]);
             } else if (std::string(argv[i]) == "--avalanche") {
                 triggerAvalancheOnStart = true;
+            } else if (std::string(argv[i]) == "--collapse-bridge") {
+                triggerBridgeCollapseOnStart = true;
             } else if (std::string(argv[i]) == "--no-goggles") {
                 hasGogglesOverride = true;
                 overrideGoggles = false;
@@ -204,6 +216,11 @@ int main(int argc, char* argv[]) {
             audioEngine.triggerAvalanche();
         }
 
+        if (triggerBridgeCollapseOnStart) {
+            player.getBridgeSystem().triggerBridgeCollapseById("bridge_khumbu_fragile");
+            audioEngine.triggerBridgeCollapse(player.getPosition() + glm::vec3(8.0f, -5.0f, -8.0f), 25.0f, 1.8f);
+        }
+
         if (!recordAudioPath.empty() && screenshotPath.empty()) {
             std::cout << "[Engine] Headless audio recording active: Rendering WAV to " << recordAudioPath
                       << " (Preset " << initialPreset << " | " << weatherSystem.getWeatherTelemetry() << ")" << std::endl;
@@ -217,6 +234,9 @@ int main(int argc, char* argv[]) {
             if (triggerAvalancheOnStart) {
                 audioEngine.triggerAvalanche();
                 audioEngine.triggerWhumpf(player.getPosition(), 1.8f);
+            }
+            if (triggerBridgeCollapseOnStart) {
+                audioEngine.triggerBridgeCollapse(player.getPosition() + glm::vec3(8.0f, -5.0f, -8.0f), 25.0f, 1.8f);
             }
             audioEngine.renderToWav(recordAudioPath, recordAudioDuration, camera, player, weatherSystem);
             std::cout << "[Engine] Audio rendering successfully completed. Exiting." << std::endl;
@@ -248,7 +268,7 @@ int main(int argc, char* argv[]) {
                 renderer.queueFootstep(posRadius, dirDepth);
             }
 
-            int warmupFrames = triggerAvalancheOnStart ? 45 : 16;
+            int warmupFrames = (triggerAvalancheOnStart || triggerBridgeCollapseOnStart) ? 45 : 16;
             for (int f = 0; f < warmupFrames; f++) {
                 timer.tick();
                 weatherSystem.update(timer.deltaTime());
@@ -295,7 +315,8 @@ int main(int argc, char* argv[]) {
                     weatherSystem.getWindSpeed(),
                     player.getCryoOpticsState(),
                     crownOrigin,
-                    crownParams
+                    crownParams,
+                    &player.getBridgeSystem().getLadders()
                 );
             }
             renderer.saveScreenshot(screenshotPath);
@@ -342,6 +363,10 @@ int main(int argc, char* argv[]) {
                 player.triggerSlabFracture(0.85f);
                 renderer.triggerAvalanche(player.getPosition());
                 audioEngine.triggerAvalanche();
+            }
+            if (input.triggerCrevasseCollapse) {
+                player.getBridgeSystem().triggerBridgeCollapseById("bridge_khumbu_fragile");
+                audioEngine.triggerBridgeCollapse(player.getPosition() + glm::vec3(8.0f, -5.0f, -8.0f), 25.0f, 1.8f);
             }
 
             // Update weather simulation
@@ -394,7 +419,8 @@ int main(int argc, char* argv[]) {
                 weatherSystem.getWindSpeed(),
                 player.getCryoOpticsState(),
                 crownOrigin,
-                crownParams
+                crownParams,
+                &player.getBridgeSystem().getLadders()
             );
 
             // Realtime HUD & Telemetry in window title

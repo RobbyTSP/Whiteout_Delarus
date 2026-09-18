@@ -1,4 +1,5 @@
 #include "Renderer.hpp"
+#include "game/CrevasseBridgeSystem.hpp"
 #include <fstream>
 #include <iostream>
 #include <vector>
@@ -121,6 +122,7 @@ Renderer::Renderer(core::Window& window)
 
     initMicroTerrainMesh();
     initBoulderMeshAndInstances();
+    initLadderMeshAndPipeline();
 }
 
 Renderer::~Renderer() {
@@ -144,6 +146,9 @@ Renderer::~Renderer() {
     m_boulderVertexBuffer.reset();
     m_boulderIndexBuffer.reset();
     m_boulderInstanceBuffer.reset();
+    m_ladderPipeline.reset();
+    m_ladderVertexBuffer.reset();
+    m_ladderIndexBuffer.reset();
 
     cleanupSnowPhysics();
     cleanupAvalanche();
@@ -2422,6 +2427,246 @@ void Renderer::updateBoulderInstances(const glm::vec3& camPos) {
     }
 }
 
+void Renderer::initLadderMeshAndPipeline() {
+    std::cout << "[Renderer] Initializing 4-Section Sectional Aluminum Crevasse Ladder & Snowbridge Pipeline..." << std::endl;
+
+    std::string ladderVertSpv = SHADER_DIR "/ladder_vert.spv";
+    std::string ladderFragSpv = SHADER_DIR "/ladder_frag.spv";
+    auto ladderBinding = rhi::Vertex::getBindingDescription();
+    auto ladderAttrs = rhi::Vertex::getAttributeDescriptions();
+
+    m_ladderPipeline = std::make_unique<rhi::VulkanPipeline>(
+        *m_context,
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        m_swapchain->getDepthFormat(),
+        ladderVertSpv,
+        ladderFragSpv,
+        std::vector<VkVertexInputBindingDescription>{ladderBinding},
+        ladderAttrs,
+        m_pipeline->getDescriptorSetLayout(),
+        sizeof(rhi::TerrainPushConstants),
+        VK_CULL_MODE_NONE
+    );
+
+    std::vector<rhi::Vertex> vertices;
+    std::vector<uint32_t> indices;
+
+    auto addBox = [&](const glm::vec3& p0, const glm::vec3& p1, float width, float height, const glm::vec3& forcedRight) {
+        glm::vec3 dir = p1 - p0;
+        float len = glm::length(dir);
+        if (len < 0.001f) return;
+        dir /= len;
+
+        glm::vec3 r = forcedRight;
+        if (glm::length(r) < 0.001f) {
+            glm::vec3 up = (std::abs(dir.y) > 0.95f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+            r = glm::normalize(glm::cross(dir, up));
+        }
+        glm::vec3 u = glm::normalize(glm::cross(r, dir));
+
+        float hw = width * 0.5f;
+        float hh = height * 0.5f;
+
+        glm::vec3 c[8] = {
+            p0 - r * hw - u * hh,
+            p0 + r * hw - u * hh,
+            p0 + r * hw + u * hh,
+            p0 - r * hw + u * hh,
+            p1 - r * hw - u * hh,
+            p1 + r * hw - u * hh,
+            p1 + r * hw + u * hh,
+            p1 - r * hw + u * hh
+        };
+
+        struct Face { glm::vec3 n; int idx[4]; };
+        Face faces[6] = {
+            { u,  {3, 2, 6, 7}},
+            {-u,  {0, 4, 5, 1}},
+            { r,  {1, 5, 6, 2}},
+            {-r,  {0, 3, 7, 4}},
+            {-dir,{0, 1, 2, 3}},
+            { dir,{4, 7, 6, 5}}
+        };
+
+        for (const auto& f : faces) {
+            uint32_t base = static_cast<uint32_t>(vertices.size());
+            for (int k = 0; k < 4; k++) {
+                rhi::Vertex v{};
+                v.position = c[f.idx[k]];
+                v.normal = f.n;
+                v.uv = glm::vec2((k == 1 || k == 2) ? 1.0f : 0.0f, (k >= 2) ? 1.0f : 0.0f);
+                vertices.push_back(v);
+            }
+            indices.push_back(base + 0);
+            indices.push_back(base + 1);
+            indices.push_back(base + 2);
+            indices.push_back(base + 0);
+            indices.push_back(base + 2);
+            indices.push_back(base + 3);
+        }
+    };
+
+    struct LadderDef {
+        glm::vec3 a;
+        glm::vec3 b;
+        float width;
+        uint32_t numRungs;
+    };
+
+    std::vector<LadderDef> ladderDefs = {
+        // 1. Khumbu Icefall Lower Crossing (Preset 5 Hotspot)
+        {glm::vec3(-13800.0f, 5867.2f, -8602.0f), glm::vec3(-13799.0f, 5866.5f, -8611.5f), 0.48f, 31},
+        // 2. Khumbu Mid-Icefall Angled Crevasse
+        {glm::vec3(-13785.0f, 5886.0f, -8570.0f), glm::vec3(-13783.0f, 5885.5f, -8578.0f), 0.48f, 26},
+        // 3. Khumbu Sérac Vertical Step
+        {glm::vec3(-13755.0f, 5908.0f, -8525.0f), glm::vec3(-13753.5f, 5913.8f, -8520.5f), 0.48f, 20},
+        // 4. Lhotse Face Bergschrund Ladder
+        {glm::vec3(-8005.0f, 8159.0f, -5206.0f), glm::vec3(-8000.0f, 8163.5f, -5198.0f), 0.52f, 34}
+    };
+
+    for (const auto& l : ladderDefs) {
+        glm::vec3 dir = l.b - l.a;
+        float len = glm::length(dir);
+        if (len < 0.5f) continue;
+        dir /= len;
+
+        glm::vec3 up = (std::abs(dir.y) > 0.95f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+        glm::vec3 r = glm::normalize(glm::cross(dir, up));
+        float railHw = l.width * 0.5f;
+
+        // Two longitudinal aluminum rails
+        addBox(l.a - r * railHw, l.b - r * railHw, 0.045f, 0.075f, r);
+        addBox(l.a + r * railHw, l.b + r * railHw, 0.045f, 0.075f, r);
+
+        // Cross rungs every ~0.30m
+        float rungSpacing = len / static_cast<float>(l.numRungs + 1);
+        for (uint32_t ri = 1; ri <= l.numRungs; ri++) {
+            float dist = static_cast<float>(ri) * rungSpacing;
+            glm::vec3 rungCenter = l.a + dir * dist;
+            addBox(rungCenter - r * railHw, rungCenter + r * railHw, 0.035f, 0.035f, dir);
+        }
+
+        // Safety lines / guide cords along side rails (0.22m elevated)
+        glm::vec3 ropeUp = glm::normalize(glm::cross(r, dir));
+        addBox(l.a - r * railHw + ropeUp * 0.22f, l.b - r * railHw + ropeUp * 0.22f, 0.015f, 0.015f, r);
+        addBox(l.a + r * railHw + ropeUp * 0.22f, l.b + r * railHw + ropeUp * 0.22f, 0.015f, 0.015f, r);
+    }
+
+    // Add Firn Snow Bridges as catenary arches
+    struct BridgeDef {
+        glm::vec3 a;
+        glm::vec3 b;
+        float width;
+        float thickness;
+    };
+    std::vector<BridgeDef> bridgeDefs = {
+        // 1. Khumbu Fragile Arch (beside main ladder)
+        {glm::vec3(-13792.0f, 5867.1f, -8602.0f), glm::vec3(-13791.5f, 5866.4f, -8611.5f), 2.2f, 0.58f},
+        // 2. Lhotse Bergschrund Cornice Bridge
+        {glm::vec3(-7990.0f, 8161.0f, -5204.0f), glm::vec3(-7988.0f, 8164.2f, -5196.0f), 1.8f, 0.72f}
+    };
+
+    for (const auto& br : bridgeDefs) {
+        glm::vec3 dir = br.b - br.a;
+        float len = glm::length(dir);
+        if (len < 0.5f) continue;
+        dir /= len;
+        glm::vec3 up(0.0f, 1.0f, 0.0f);
+        glm::vec3 r = glm::normalize(glm::cross(dir, up));
+
+        constexpr int segs = 12;
+        for (int si = 0; si < segs; si++) {
+            float s0 = static_cast<float>(si) / static_cast<float>(segs);
+            float s1 = static_cast<float>(si + 1) / static_cast<float>(segs);
+
+            float sag0 = 0.09f * 4.0f * s0 * (1.0f - s0);
+            float sag1 = 0.09f * 4.0f * s1 * (1.0f - s1);
+
+            glm::vec3 p0 = br.a + (br.b - br.a) * s0 - glm::vec3(0.0f, sag0, 0.0f);
+            glm::vec3 p1 = br.a + (br.b - br.a) * s1 - glm::vec3(0.0f, sag1, 0.0f);
+
+            addBox(p0, p1, br.width, br.thickness, r);
+        }
+    }
+
+    m_ladderIndexCount = static_cast<uint32_t>(indices.size());
+
+    m_ladderVertexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
+        *m_context,
+        vertices.data(),
+        vertices.size() * sizeof(rhi::Vertex),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+    );
+
+    m_ladderIndexBuffer = rhi::VulkanBuffer::createDeviceLocalBuffer(
+        *m_context,
+        indices.data(),
+        indices.size() * sizeof(uint32_t),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+    );
+
+    std::cout << "[Renderer] Generated " << vertices.size() << " vertices, "
+              << indices.size() / 3 << " triangles for expedition ladders & snow bridges." << std::endl;
+}
+
+void Renderer::renderLadders(
+    VkCommandBuffer cmd,
+    const core::Camera& camera,
+    const glm::vec3& sunDir,
+    const glm::vec3& sunColor,
+    float blizzardFactor,
+    float windSpeed,
+    float totalTime,
+    const std::vector<whiteout::game::AluminumLadder>* ladders
+) {
+    (void)ladders;
+    if (!m_ladderPipeline || !m_ladderVertexBuffer || !m_ladderIndexBuffer || m_ladderIndexCount == 0) {
+        return;
+    }
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_ladderPipeline->getHandle());
+
+    rhi::TerrainPushConstants pushConstants{};
+    pushConstants.model = glm::mat4(1.0f);
+    pushConstants.view = camera.getViewMatrix();
+    pushConstants.proj = camera.getProjectionMatrix();
+    pushConstants.cameraPos = glm::vec4(camera.getPosition(), 0.75f);
+    pushConstants.sunDir = glm::vec4(glm::normalize(sunDir), windSpeed);
+    pushConstants.sunColor = glm::vec4(sunColor, blizzardFactor);
+    pushConstants.time = totalTime;
+    pushConstants.minElev = m_minElevation;
+    pushConstants.maxElev = m_maxElevation;
+    pushConstants.cloudBase = 4950.0f;
+
+    vkCmdPushConstants(
+        cmd,
+        m_ladderPipeline->getLayout(),
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        0,
+        sizeof(rhi::TerrainPushConstants),
+        &pushConstants
+    );
+
+    if (m_descriptorSet != VK_NULL_HANDLE) {
+        vkCmdBindDescriptorSets(
+            cmd,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            m_ladderPipeline->getLayout(),
+            0,
+            1,
+            &m_descriptorSet,
+            0,
+            nullptr
+        );
+    }
+
+    VkBuffer vbs[] = {m_ladderVertexBuffer->getHandle()};
+    VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
+    vkCmdBindIndexBuffer(cmd, m_ladderIndexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cmd, m_ladderIndexCount, 1, 0, 0, 0);
+}
+
 void Renderer::renderFrame(
     const core::Camera& camera,
     float totalTime,
@@ -2433,7 +2678,8 @@ void Renderer::renderFrame(
     float windSpeed,
     const CryoOpticsState& cryoOptics,
     const glm::vec4& crownOrigin,
-    const glm::vec4& crownParams
+    const glm::vec4& crownParams,
+    const std::vector<whiteout::game::AluminumLadder>* ladders
 ) {
     VkDevice device = m_context->getDevice();
 
@@ -2722,6 +2968,18 @@ void Renderer::renderFrame(
         vkCmdBindIndexBuffer(cmd, m_boulderIndexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, m_boulderIndexCount, m_boulderInstanceCount, 0, 0, 0);
     }
+
+    // Step 25: Render 4-Section Sectional Aluminum Crevasse Ladders & Snowbridges
+    renderLadders(
+        cmd,
+        camera,
+        sunDir,
+        sunColor,
+        blizzardFactor,
+        windSpeed,
+        totalTime,
+        ladders
+    );
 
     // Step 20: Render Volumetric Powder Avalanche Billows with Mie Forward Scattering
     renderAvalanche(

@@ -8,6 +8,8 @@
 #include "../core/Camera.hpp"
 #include "../renderer/Renderer.hpp"
 #include "TerrainCollider.hpp"
+#include "CrevasseBridgeSystem.hpp"
+#include <functional>
 
 namespace whiteout::game {
 
@@ -85,6 +87,14 @@ public:
     [[nodiscard]] SnowpackSimulation& getSnowpack();
     void triggerSlabFracture(float slabDepth = 0.85f);
 
+    // Step 25: Crevasse Bridges, Bergschrunds & Aluminum Ladders
+    [[nodiscard]] const CrevasseBridgeSystem& getBridgeSystem() const { return *m_bridgeSystem; }
+    [[nodiscard]] CrevasseBridgeSystem& getBridgeSystem() { return *m_bridgeSystem; }
+    [[nodiscard]] bool isCrossingCrevasse() const;
+    void setLadderStepCallback(std::function<void(const glm::vec3&, float, int)> cb) { m_onLadderStep = cb; }
+    void setBridgeCollapseCallback(std::function<void(const glm::vec3&, float, float)> cb) { m_onBridgeCollapse = cb; }
+    void setBridgeCrackCallback(std::function<void(const glm::vec3&, float)> cb) { m_onBridgeCrack = cb; }
+
 private:
     void updateFirstPerson(float deltaTime, const core::WindowEventState& input);
     void updateFreeFlight(float deltaTime, const core::WindowEventState& input);
@@ -146,6 +156,12 @@ private:
     // Step 24: Stratified Snowpack Simulation & Weak-Layer Mechanics
     const WeatherSystem* m_weather = nullptr;
     std::unique_ptr<SnowpackSimulation> m_snowpack;
+
+    // Step 25: Crevasse Bridge & Aluminum Ladder System
+    std::unique_ptr<CrevasseBridgeSystem> m_bridgeSystem;
+    std::function<void(const glm::vec3&, float, int)> m_onLadderStep;
+    std::function<void(const glm::vec3&, float, float)> m_onBridgeCollapse;
+    std::function<void(const glm::vec3&, float)> m_onBridgeCrack;
 };
 
 } // namespace whiteout::game

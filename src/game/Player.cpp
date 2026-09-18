@@ -13,8 +13,13 @@ namespace whiteout::game {
 Player::Player(core::Camera& camera, const TerrainCollider& collider, const WeatherSystem* weather)
     : m_camera(camera), m_collider(collider), m_weather(weather) {
     m_snowpack = std::make_unique<SnowpackSimulation>(m_collider);
+    m_bridgeSystem = std::make_unique<CrevasseBridgeSystem>();
     // Start at Everest Base Camp
     teleportToPreset(1);
+}
+
+bool Player::isCrossingCrevasse() const {
+    return m_bridgeSystem ? m_bridgeSystem->isPlayerOnLadder() : false;
 }
 
 void Player::teleportToPreset(int preset) {
@@ -227,8 +232,37 @@ void Player::updateFirstPerson(float deltaTime, const core::WindowEventState& in
     m_position.x = nextPos.x;
     m_position.z = nextPos.z;
 
+    // Step 25: Crevasse Bridge & Sectional Aluminum Ladder Interaction
+    float ambientTemp = m_weather ? m_weather->getSummitWeather().temperatureCelsius : -15.0f;
+    if (m_bridgeSystem) {
+        m_bridgeSystem->update(deltaTime, ambientTemp);
+    }
+    BridgeInteractionResult bridgeResult{};
+    if (m_bridgeSystem) {
+        bridgeResult = m_bridgeSystem->resolvePlayer(
+            m_position,
+            m_velocity,
+            input.sprint,
+            !m_isGrounded,
+            95.0f,
+            deltaTime
+        );
+    }
+
     // 5. Vertical Physics, Gravity & Jump
     float groundY = m_collider.getHeight(m_position.x, m_position.z);
+    if (bridgeResult.isOnStructure) {
+        groundY = bridgeResult.supportedHeightY;
+
+        if (bridgeResult.triggeredRungStep && m_onLadderStep) {
+            m_onLadderStep(bridgeResult.rungWorldPos, input.sprint ? 1.4f : 1.0f, bridgeResult.rungIndex);
+        }
+        if (bridgeResult.triggeredCollapse && m_onBridgeCollapse) {
+            m_onBridgeCollapse(bridgeResult.collapseWorldPos, bridgeResult.chasmDepth, 1.8f);
+        } else if (bridgeResult.triggeredCrack && m_onBridgeCrack) {
+            m_onBridgeCrack(bridgeResult.collapseWorldPos, 1.0f);
+        }
+    }
 
     if (m_isGrounded) {
         if (input.jump) {
@@ -316,12 +350,14 @@ void Player::updateFirstPerson(float deltaTime, const core::WindowEventState& in
             step.dirDepth = glm::vec4(fwd.x, fwd.z, stepDepth, 0.88f);
             m_recentFootsteps.push_back(step);
 
-            // Step 23: Material-specific footstep acoustics
-            AudioFootstepEvent stepAudio{};
-            stepAudio.surfaceType = m_currentGeology.surfaceType;
-            stepAudio.intensity = input.sprint ? 1.4f : (input.crouch ? 0.45f : 1.0f);
-            stepAudio.isLeftFoot = m_isLeftFoot;
-            m_recentAudioSteps.push_back(stepAudio);
+            // Step 23: Material-specific footstep acoustics (suppressed on ladders in favor of metallic rung pings)
+            if (!bridgeResult.isLadder) {
+                AudioFootstepEvent stepAudio{};
+                stepAudio.surfaceType = m_currentGeology.surfaceType;
+                stepAudio.intensity = input.sprint ? 1.4f : (input.crouch ? 0.45f : 1.0f);
+                stepAudio.isLeftFoot = m_isLeftFoot;
+                m_recentAudioSteps.push_back(stepAudio);
+            }
         }
     } else {
         m_walkCycle = 0.0f;
@@ -332,11 +368,12 @@ void Player::updateFirstPerson(float deltaTime, const core::WindowEventState& in
     glm::vec3 eyePos = m_position + glm::vec3(bobX, m_currentEyeHeight + bobY, 0.0f);
     m_camera.setPosition(eyePos);
 
-    // Calculate camera look direction
+    // Calculate camera look direction (with Step 25 ladder balance roll sway)
+    float ladderRoll = bridgeResult.lateralSwayRollRad;
     glm::vec3 lookDir;
-    lookDir.x = std::cos(glm::radians(m_yaw)) * std::cos(glm::radians(m_pitch));
+    lookDir.x = std::cos(glm::radians(m_yaw + ladderRoll * 8.0f)) * std::cos(glm::radians(m_pitch));
     lookDir.y = std::sin(glm::radians(m_pitch));
-    lookDir.z = std::sin(glm::radians(m_yaw)) * std::cos(glm::radians(m_pitch));
+    lookDir.z = std::sin(glm::radians(m_yaw + ladderRoll * 8.0f)) * std::cos(glm::radians(m_pitch));
     m_camera.setLookAt(eyePos + lookDir);
 
     // 9. Step 22 (1:1 Part XX): Visceral Mountaineer Cryo-Optics & Alpine Physiology
@@ -512,6 +549,14 @@ std::string Player::getTelemetryString() const {
         // Step 24: Snowpack Stratification & Avalanche Hazard Telemetry
         if (m_snowpack) {
             ss << " | " << m_snowpack->getSnowpackTelemetry();
+        }
+
+        // Step 25: Crevasse Bridge & Aluminum Ladder Telemetry
+        if (m_bridgeSystem) {
+            std::string bridgeTelem = m_bridgeSystem->getActiveStructureTelemetry();
+            if (!bridgeTelem.empty()) {
+                ss << " | [" << bridgeTelem << "]";
+            }
         }
 
         // Hotspot Proximity Recognition (Step 18 & Step 21 3DGS)

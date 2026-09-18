@@ -78,6 +78,8 @@ add_slang_shader("avalanche.slang" "vertex" "vertexMain" "avalanche_vert.spv")
 add_slang_shader("avalanche.slang" "fragment" "fragmentMain" "avalanche_frag.spv")
 add_slang_shader("gaussian_splat.slang" "vertex" "vertexMain" "gaussian_splat_vert.spv")
 add_slang_shader("gaussian_splat.slang" "fragment" "fragmentMain" "gaussian_splat_frag.spv")
+add_slang_shader("ladder.slang" "vertex" "vertexMain" "ladder_vert.spv")
+add_slang_shader("ladder.slang" "fragment" "fragmentMain" "ladder_frag.spv")
 
 add_custom_target(compile_shaders ALL DEPENDS ${SPV_TARGETS})
 
@@ -98,6 +100,7 @@ set(SOURCES
     src/game/Player.cpp
     src/game/WeatherSystem.cpp
     src/game/SnowpackSimulation.cpp
+    src/game/CrevasseBridgeSystem.cpp
     src/audio/AcousticRaytracer.cpp
     src/audio/AlpineAudioEngine.cpp
 )
@@ -118,6 +121,7 @@ set(HEADERS
     src/game/Player.hpp
     src/game/WeatherSystem.hpp
     src/game/SnowpackSimulation.hpp
+    src/game/CrevasseBridgeSystem.hpp
     src/audio/AcousticRaytracer.hpp
     src/audio/AlpineAudioEngine.hpp
 )
