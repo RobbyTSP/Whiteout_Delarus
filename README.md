@@ -861,9 +861,42 @@ Physikalisch exakte Modellierung der extremen Hochatmosphäre der Todeszone ($>7
     * **Peripherer Tunnelblick (*Tunnel Vision*):** Sauerstoffmangel im Kapillarsystem schränkt das periphere Gesichtsfeld proportional zur $O_2$-Sättigung ein.
     * **Zyanotische Netzhaut-Entsättigung:** Fading der Farbrezeptoren in kühles, fiebriges Zyanotik-Grau (`float3(0.88, 0.94, 1.06)`).
     * **Kardiovaskulärer Herzschlag-Puls (120–165 bpm):** Arterielle Systole/Diastole-Wellenform moduliert rhythmisch den Tunnelradius und treibt einen tiefroten, venösen Gefäßstoß an den Sehfeldrändern an.
-* [ ] **Schritt 23 (1:1 Part XXI): Wave-Based Alpine Audio Raytracing:**
-  * Akustisches Raytracing im $35\text{ km}$ Höhenmodell mit Infraschall-Echos brechender Eistürme an der 3.000 m hohen Nuptse-Wand.
-  * Physikalisch brechender Orkanwind an Felsgraten und materialspezifische Steigeisen-Akustik (zersplitterndes Blankeis vs. knirschender Firn).
+* [x] **Schritt 23 (1:1 Part XXI): Wave-Based Alpine Audio Raytracing (Abgeschlossen):**
+  * **Akustisches 3D-Raytracing im 35 km Höhenmodell ([`src/audio/AcousticRaytracer.hpp`](src/audio/AcousticRaytracer.hpp), [`src/audio/AcousticRaytracer.cpp`](src/audio/AcousticRaytracer.cpp)):**
+    * **16-strahliges Raymarching durch das 1024×1024 Float32 DEM:** Kontinuierliche Abtastung von Felsbarrieren und Hangprofilen bis zu 5.500 m Reichweite.
+    * **Schallausbreitung in dünner Höhenluft:** Physikalische Schallgeschwindigkeit $c \approx 320\text{ m/s}$ bei $-20\,^\circ\text{C}$ und barometrischem Unterdruck (350 bis 550 hPa).
+    * **Winkelabhängige spekuläre Reflexion & Dämpfung:** Berücksichtigung des Schalleinfallswinkels ($\cos\theta_{\text{normal}}$), geometrischer Wellenausbreitung ($1/r^{1,25}$) sowie atmosphärischer Höhendämpfung ($\exp(-0,00018 \cdot d)$).
+    * **Materialspezifische Absorptionskoeffizienten & Tiefpassfilterung:**
+      * *Massiver Granit / Kalkstein:* 94 % Reflexionsgrad, Grenzfrequenz 3.800 Hz.
+      * *Glaziales Blankeis:* 88 % Reflexionsgrad, Grenzfrequenz 4.200 Hz (harte Slapback-Reflexionen).
+      * *Sinterfirn / Tiefschnee:* 35 % Reflexionsgrad, Grenzfrequenz 850 Hz (starke Hochfrequenz-Absorption).
+      * *Moränenschutt / Blockwerk:* 55 % Reflexionsgrad, Grenzfrequenz 1.500 Hz.
+    * **Geomorphologische Landmarken-Identifikation:** Automatische Erkennung der **3.000 m Nuptse-Südwand** ($X \approx -11.000$, $Z \approx -5.800$, 7.861 m) als monumentalem Hauptreflektor, der **Lhotse 1.100 m Eiswand** sowie der **Everest Südwestwand**.
+    * **Raumakustische Metriken:** Dynamische Nachhallzeit $RT_{60}$ (0,3 s im Freifeld bis 4,8 s im abgeschlossenen Khumbu/Western Cwm Felskessel) und orografischer Grat-Expositionsfaktor (*Ridge Exposure*).
+  * **Infraschall-Echos brechender Eistürme an der 3.000 m Nuptse-Wand ([`src/audio/AlpineAudioEngine.hpp`](src/audio/AlpineAudioEngine.hpp), [`src/audio/AlpineAudioEngine.cpp`](src/audio/AlpineAudioEngine.cpp)):**
+    * **Physikalische Synthese von Sérac-Stürzen & Staublawinen:** Niederfrequente Infraschall-Stoßwellen ($18–48\text{ Hz}$), explosive Bruch-Transienten und rollendes Sub-Bass-Grollen (50–120 Hz).
+    * **8-Sekunden Multi-Tap Delay Line Puffer (`AcousticDelayLine`):** Speichert das Primärsignal und speist raygetracte Echos mit 4,6 bis 7,5 Sekunden Verzögerung über die Nuptse-Wand zurück.
+  * **Physikalisch brechender Orkanwind an Felsgraten (Aeolian Noise & Karman-Wirbel):**
+    * **6-Pol-IIR Pink Noise Generator:** Gefiltertes 1/f-Rauschen nach der Voss-McCartney-Architektur.
+    * **Strouhal-Wirbelablösung (Karman Vortex Shedding):**
+      $$f_{\text{vortex}} = \frac{St \cdot v_{\text{wind}}}{d_{\text{ridge}}} \quad (250–1.200\,\text{Hz})$$
+      Das schneidende Pfeifen des Höhensturms skaliert präzise mit der orografischen Grat-Exposition am Hillary Step und Everest-Gipfelgrat bei bis zu 220 km/h Jetstream-Geschwindigkeit.
+    * **Binaurales Head-Shadow Panning:** Stereo-Raumklang passt sich in Echtzeit an die Blick- und Kopforientierung des Spielers an.
+  * **Materialspezifische Steigeisen-Akustik (Crampon Footstep Synthesizer):**
+    * Vier physikalische Synthese-Generatoren für die verschiedenen Untergründe:
+      * **Glaziales Blankeis (`GlacialBlueIce`):** Scharfer metallischer Doppel-Ping (1.850 Hz & 3.450 Hz) gehärteter Stahlzacken im Eisgitter + sprödes Eisscherben-Knisterrauschen (3.500–7.500 Hz).
+      * **Verdichteter Firnschnee (`HardFirnSnow`):** Knirschendes Brechen kompakter Schneekristalle mit frequenzmoduliertem Abwärts-Chirp ($580 \to 360\text{ Hz}$) und Schneelast-Sub-Bass (120 Hz).
+      * **Moränenschutt (`TalusScreeSlope`):** Harter Granit-Aufprallklick + klapperndes Nachrieseln loser Schiefergeröll-Kiesel (480 Hz).
+      * **Freier Fels (`ExposedRockFace`):** Kreischendes Scharren und Kratzen der Steigeisenkronen auf blankem Fels mit reibungsmoduliertem 1.400 Hz Rauschen.
+  * **Physiologische Audio-Effekte (Mountaineer Bio-Acoustics):**
+    * **Kardiovaskuläres Ohrensausen:** Tieffrequentes Pulsieren im Innenohr, synchronisiert mit der Herzfrequenz (70 bis 165 bpm) und dem venösen Gefäßstoß aus Schritt 22.
+    * **Sturmhauben-Atmung (*Balaclava Airflow*):** Zweiphasiges Strömungsrauschen (Einatmen / Ausatmen) durch Wolle/Neopren, synchronisiert mit Atemfrequenz und Anstrengung (`m_exertion`).
+    * **Hypoxie-Tinnitus in der Todeszone (> 8.000 m):** Schmalbandiger zerebraler 3.850 Hz Sinuston, dessen Intensität proportional zum $O_2$-Mangel anschwillt.
+  * **Headless-WAV-Export & Paritätsprüfung:**
+    * CLI-Parameter `--record-audio <pfad.wav>` und `--record-duration <sekunden>` zur Aufzeichnung von 48 kHz 16-Bit Stereo PCM-Audio für automatisierte Verifikation.
+* [ ] **Schritt 24 (1:1 Part XXII): Dynamic Snow Creep, Slab Fractures & Weak-Layer Avalanche Mechanics:**
+  * Schneedecken-Schichtungsmodell (Neu- vs. Schwimmschnee-Tiefenreif) mit elasto-plastischem Bruchversagen entlang schwacher Schichten.
+  * Kronenanriss-Ausbreitung (*Crown Fracture*) über Steilwände und dynamische Schneedrift-Akkumulation in Windschattenmulden.
 
 
 

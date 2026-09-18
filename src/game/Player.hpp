@@ -44,7 +44,16 @@ public:
     [[nodiscard]] const std::vector<SnowFootstep>& getRecentFootsteps() const { return m_recentFootsteps; }
     void clearRecentFootsteps() { m_recentFootsteps.clear(); }
 
-    // Step 22: Visceral Mountaineer Cryo-Optics
+    // Step 23: Material-Specific Crampon Footstep Audio Events
+    struct AudioFootstepEvent {
+        AlpineSurfaceType surfaceType = AlpineSurfaceType::HardFirnSnow;
+        float intensity = 1.0f;
+        bool isLeftFoot = false;
+    };
+    [[nodiscard]] const std::vector<AudioFootstepEvent>& getRecentAudioSteps() const { return m_recentAudioSteps; }
+    void clearRecentAudioSteps() { m_recentAudioSteps.clear(); }
+
+    // Step 22: Visceral Mountaineer Cryo-Optics & Step 23 Physiology Audio
     [[nodiscard]] bool isGogglesEquipped() const { return m_gogglesEquipped; }
     void toggleGoggles() { m_gogglesEquipped = !m_gogglesEquipped; }
     void setGogglesEquipped(bool equipped) { m_gogglesEquipped = equipped; }
@@ -61,6 +70,8 @@ public:
 
     [[nodiscard]] float getHeartRateBpm() const { return m_heartRateBpm; }
     [[nodiscard]] float getHeartbeatPulse() const { return m_heartbeatPulse; }
+    [[nodiscard]] float getExertion() const { return m_exertion; }
+    [[nodiscard]] float getBreathPhase() const { return m_breathPhase; }
 
     [[nodiscard]] renderer::CryoOpticsState getCryoOpticsState() const;
 
@@ -108,6 +119,7 @@ private:
     bool m_isLeftFoot = false;
     bool m_wasGrounded = true;
     std::vector<SnowFootstep> m_recentFootsteps;
+    std::vector<AudioFootstepEvent> m_recentAudioSteps;
 
     // Step 22: Visceral Mountaineer Cryo-Optics & Physiology
     bool m_gogglesEquipped = true;

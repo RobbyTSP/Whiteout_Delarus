@@ -127,6 +127,7 @@ float Player::getOxygenSaturation() const {
 
 void Player::update(float deltaTime, const core::WindowEventState& input) {
     m_recentFootsteps.clear();
+    m_recentAudioSteps.clear();
 
     if (input.toggleMode) {
         toggleMode();
@@ -281,6 +282,13 @@ void Player::updateFirstPerson(float deltaTime, const core::WindowEventState& in
 
         m_recentFootsteps.push_back(leftLand);
         m_recentFootsteps.push_back(rightLand);
+
+        // Step 23: Landing impact acoustics
+        AudioFootstepEvent landAudio{};
+        landAudio.surfaceType = m_currentGeology.surfaceType;
+        landAudio.intensity = input.sprint ? 1.9f : 1.4f;
+        landAudio.isLeftFoot = false;
+        m_recentAudioSteps.push_back(landAudio);
     }
     m_wasGrounded = m_isGrounded;
 
@@ -304,6 +312,13 @@ void Player::updateFirstPerson(float deltaTime, const core::WindowEventState& in
             step.posRadius = glm::vec4(footPos, 0.28f);
             step.dirDepth = glm::vec4(fwd.x, fwd.z, stepDepth, 0.88f);
             m_recentFootsteps.push_back(step);
+
+            // Step 23: Material-specific footstep acoustics
+            AudioFootstepEvent stepAudio{};
+            stepAudio.surfaceType = m_currentGeology.surfaceType;
+            stepAudio.intensity = input.sprint ? 1.4f : (input.crouch ? 0.45f : 1.0f);
+            stepAudio.isLeftFoot = m_isLeftFoot;
+            m_recentAudioSteps.push_back(stepAudio);
         }
     } else {
         m_walkCycle = 0.0f;

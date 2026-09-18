@@ -97,6 +97,8 @@ set(SOURCES
     src/game/TerrainCollider.cpp
     src/game/Player.cpp
     src/game/WeatherSystem.cpp
+    src/audio/AcousticRaytracer.cpp
+    src/audio/AlpineAudioEngine.cpp
 )
 
 set(HEADERS
@@ -114,6 +116,8 @@ set(HEADERS
     src/game/TerrainCollider.hpp
     src/game/Player.hpp
     src/game/WeatherSystem.hpp
+    src/audio/AcousticRaytracer.hpp
+    src/audio/AlpineAudioEngine.hpp
 )
 
 add_executable(whiteout ${SOURCES} ${HEADERS})

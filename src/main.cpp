@@ -5,6 +5,7 @@
 #include "game/TerrainCollider.hpp"
 #include "game/Player.hpp"
 #include "game/WeatherSystem.hpp"
+#include "audio/AlpineAudioEngine.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -14,14 +15,12 @@ int main(int argc, char* argv[]) {
     (void)argv;
 
     std::cout << "=========================================================\n";
-    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 7 (1:1 PART III)\n";
-    std::cout << " Photorealism: Alpine Ridge Sculpting, Couloir Fluting & Talus Cones\n";
-    std::cout << " Shader: Triplanar PBR, Slope-Masking, Anti-Tiling, Horizon AO & ACES\n";
-    std::cout << " Rendering API: Vulkan 1.3+ / 1.4 (Dynamic Rendering)\n";
-    std::cout << " Shading Language: Slang (SPIR-V)\n";
-    std::cout << " 1:1 Scale: 1,048,576 Vertices / 2,093,058 Triangles (1024x1024 DEM)\n";
-    std::cout << " Atmosphere: Volumetric Wolkenmeer, Alpenglühen, Aerial Rayleigh Haze\n";
-    std::cout << " Weather: Live Open-Meteo Sync, Spindrift & Whiteout Simulation\n";
+    std::cout << " WHITEOUT DELARUS: 1:1 HIMALAYA ENGINE - STEP 23 (1:1 PART XXI)\n";
+    std::cout << " Wave-Based Alpine Audio Raytracing & Procedural Physical Synthesis\n";
+    std::cout << " Acoustics: 35km DEM Acoustic Reflections, Nuptse 3,000m Face Echoes\n";
+    std::cout << " Wind: Aeolian Ridge Whistling, Karman Vortex Shedding, Head-Shadow Panning\n";
+    std::cout << " Material Footsteps: Glacial Blue Ice, Compacted Firn, Scree, Rock Faces\n";
+    std::cout << " Physiology: Cardiac Pulse Sync, Respiration Airflow, Cochlear Hypoxia Tinnitus\n";
     std::cout << " Controls:\n";
     std::cout << "   - Mouse Move: Look around (Click window to capture mouse)\n";
     std::cout << "   - W / A / S / D: Walk forward / left / back / right\n";
@@ -69,10 +68,16 @@ int main(int argc, char* argv[]) {
         // Live Weather & Atmosphere System (Open-Meteo + Alpenglühen + Wolkenmeer)
         whiteout::game::WeatherSystem weatherSystem(DATA_DIR "/weather/everest_current.json");
 
+        // Wave-Based Alpine Audio Raytracing & Procedural Synthesis (Step 23)
+        whiteout::audio::AlpineAudioEngine audioEngine;
+        audioEngine.init(&collider);
+
         whiteout::core::Timer timer;
 
         // Check for CLI arguments: --preset <N>, --screenshot <path>, --cam <x> <y> <z> <yaw> <pitch>, --time <N>, --blizzard
         std::string screenshotPath = "";
+        std::string recordAudioPath = "";
+        float recordAudioDuration = 5.0f;
         int initialPreset = 1;
         bool hasCustomCam = false;
         glm::vec3 customCamPos(0.0f);
@@ -87,6 +92,10 @@ int main(int argc, char* argv[]) {
         for (int i = 1; i < argc; i++) {
             if (std::string(argv[i]) == "--screenshot" || std::string(argv[i]) == "--headless-screenshot") {
                 screenshotPath = (i + 1 < argc) ? argv[i + 1] : "everest_step6.png";
+            } else if (std::string(argv[i]) == "--record-audio" && i + 1 < argc) {
+                recordAudioPath = argv[++i];
+            } else if (std::string(argv[i]) == "--record-duration" && i + 1 < argc) {
+                recordAudioDuration = static_cast<float>(std::atof(argv[++i]));
             } else if (std::string(argv[i]) == "--preset" && i + 1 < argc) {
                 initialPreset = std::atoi(argv[i + 1]);
             } else if (std::string(argv[i]) == "--avalanche") {
@@ -177,6 +186,25 @@ int main(int argc, char* argv[]) {
 
         if (triggerAvalancheOnStart) {
             renderer.triggerAvalanche();
+            audioEngine.triggerAvalanche();
+        }
+
+        if (!recordAudioPath.empty() && screenshotPath.empty()) {
+            std::cout << "[Engine] Headless audio recording active: Rendering WAV to " << recordAudioPath
+                      << " (Preset " << initialPreset << " | " << weatherSystem.getWeatherTelemetry() << ")" << std::endl;
+            for (int f = 0; f < 16; f++) {
+                timer.tick();
+                weatherSystem.update(0.016f);
+                whiteout::core::WindowEventState idleInput{};
+                player.update(0.016f, idleInput);
+                audioEngine.update(0.016f, camera, player, weatherSystem);
+            }
+            if (triggerAvalancheOnStart) {
+                audioEngine.triggerAvalanche();
+            }
+            audioEngine.renderToWav(recordAudioPath, recordAudioDuration, camera, player, weatherSystem);
+            std::cout << "[Engine] Audio rendering successfully completed. Exiting." << std::endl;
+            return 0;
         }
 
         if (!screenshotPath.empty()) {
@@ -224,6 +252,8 @@ int main(int argc, char* argv[]) {
                     camera.setLookAt(customCamPos + lookDir);
                 }
 
+                audioEngine.update(timer.deltaTime(), camera, player, weatherSystem);
+
                 renderer.renderFrame(
                     camera,
                     timer.totalTime(),
@@ -237,7 +267,15 @@ int main(int argc, char* argv[]) {
                 );
             }
             renderer.saveScreenshot(screenshotPath);
-            std::cout << "[Engine] Screenshot successfully captured. Exiting." << std::endl;
+            std::cout << "[Engine] Screenshot successfully captured." << std::endl;
+
+            if (!recordAudioPath.empty()) {
+                if (triggerAvalancheOnStart) {
+                    audioEngine.triggerAvalanche();
+                }
+                audioEngine.renderToWav(recordAudioPath, recordAudioDuration, camera, player, weatherSystem);
+            }
+
             return 0;
         }
 
@@ -269,6 +307,7 @@ int main(int argc, char* argv[]) {
             }
             if (input.triggerAvalanche) {
                 renderer.triggerAvalanche();
+                audioEngine.triggerAvalanche();
             }
 
             // Update weather simulation
@@ -283,6 +322,16 @@ int main(int argc, char* argv[]) {
                 renderer.queueFootstep(step.posRadius, step.dirDepth);
             }
             player.clearRecentFootsteps();
+
+            // Forward player footsteps to audio engine for material-specific crampon acoustics
+            const auto& recentAudioSteps = player.getRecentAudioSteps();
+            for (const auto& step : recentAudioSteps) {
+                audioEngine.triggerFootstep(step.surfaceType, step.intensity, step.isLeftFoot);
+            }
+            player.clearRecentAudioSteps();
+
+            // Update wave-based alpine acoustics & raytracing
+            audioEngine.update(timer.deltaTime(), camera, player, weatherSystem);
 
             // Render frame using Vulkan 1.4 Dynamic Rendering & Slang shader with full atmosphere
             renderer.renderFrame(
@@ -305,7 +354,8 @@ int main(int argc, char* argv[]) {
                 title << "Whiteout Delarus | "
                       << std::fixed << std::setprecision(0) << timer.currentFps() << " FPS | "
                       << player.getTelemetryString() << " | "
-                      << weatherSystem.getWeatherTelemetry();
+                      << weatherSystem.getWeatherTelemetry() << " | "
+                      << audioEngine.getAudioTelemetry();
 
                 SDL_SetWindowTitle(window.getNativeHandle(), title.str().c_str());
             }
