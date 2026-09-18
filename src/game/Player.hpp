@@ -2,8 +2,11 @@
 
 #include <glm/glm.hpp>
 #include <string>
+#include <vector>
+#include <algorithm>
 #include "../core/Window.hpp"
 #include "../core/Camera.hpp"
+#include "../renderer/Renderer.hpp"
 #include "TerrainCollider.hpp"
 
 namespace whiteout::game {
@@ -40,6 +43,26 @@ public:
     };
     [[nodiscard]] const std::vector<SnowFootstep>& getRecentFootsteps() const { return m_recentFootsteps; }
     void clearRecentFootsteps() { m_recentFootsteps.clear(); }
+
+    // Step 22: Visceral Mountaineer Cryo-Optics
+    [[nodiscard]] bool isGogglesEquipped() const { return m_gogglesEquipped; }
+    void toggleGoggles() { m_gogglesEquipped = !m_gogglesEquipped; }
+    void setGogglesEquipped(bool equipped) { m_gogglesEquipped = equipped; }
+
+    [[nodiscard]] float getGogglesFog() const { return m_gogglesFog; }
+    void setGogglesFog(float fog) { m_gogglesFog = std::clamp(fog, 0.0f, 1.0f); }
+
+    [[nodiscard]] float getGogglesFrost() const { return m_gogglesFrost; }
+    void setGogglesFrost(float frost) { m_gogglesFrost = std::clamp(frost, 0.0f, 1.0f); }
+
+    [[nodiscard]] float getSnowBlindness() const { return m_snowBlindness; }
+    [[nodiscard]] float getHypoxiaFactor() const { return m_hypoxiaFactor; }
+    void setHypoxiaFactor(float h) { m_hypoxiaFactor = std::clamp(h, 0.0f, 1.0f); }
+
+    [[nodiscard]] float getHeartRateBpm() const { return m_heartRateBpm; }
+    [[nodiscard]] float getHeartbeatPulse() const { return m_heartbeatPulse; }
+
+    [[nodiscard]] renderer::CryoOpticsState getCryoOpticsState() const;
 
 private:
     void updateFirstPerson(float deltaTime, const core::WindowEventState& input);
@@ -85,6 +108,18 @@ private:
     bool m_isLeftFoot = false;
     bool m_wasGrounded = true;
     std::vector<SnowFootstep> m_recentFootsteps;
+
+    // Step 22: Visceral Mountaineer Cryo-Optics & Physiology
+    bool m_gogglesEquipped = true;
+    float m_gogglesFog = 0.0f;       // Condensation mist (0..1)
+    float m_gogglesFrost = 0.0f;     // Frozen dendritic ice crystals at edges (0..1)
+    float m_snowBlindness = 0.0f;    // Photokeratitis overexposure (0..1)
+    float m_hypoxiaFactor = 0.0f;    // Death zone cerebral hypoxia (0..1)
+    float m_heartRateBpm = 75.0f;    // Heart rate (60..165 bpm)
+    float m_pulsePhase = 0.0f;       // [0, 2pi]
+    float m_heartbeatPulse = 0.0f;   // Systole/diastole arterial pulse waveform (0..1)
+    float m_breathPhase = 0.0f;      // Respiration cycle [0, 2pi]
+    float m_exertion = 0.15f;        // Physical exertion level (0..1)
 };
 
 } // namespace whiteout::game

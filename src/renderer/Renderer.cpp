@@ -2420,7 +2420,8 @@ void Renderer::renderFrame(
     float cloudDensity,
     float cloudBase,
     float blizzardFactor,
-    float windSpeed
+    float windSpeed,
+    const CryoOpticsState& cryoOptics
 ) {
     VkDevice device = m_context->getDevice();
 
@@ -2897,6 +2898,18 @@ void Renderer::renderFrame(
         postPush.resolution = glm::vec2(static_cast<float>(extent.width), static_cast<float>(extent.height));
         postPush.time = totalTime;
         postPush.blizzard = blizzardFactor;
+        postPush.cryoParams1 = glm::vec4(
+            cryoOptics.gogglesEquipped ? 1.0f : 0.0f,
+            cryoOptics.gogglesFog,
+            cryoOptics.gogglesFrost,
+            cryoOptics.snowBlindness
+        );
+        postPush.cryoParams2 = glm::vec4(
+            cryoOptics.hypoxiaFactor,
+            cryoOptics.heartbeatPulse,
+            cryoOptics.oxygenSaturation,
+            cryoOptics.altitude
+        );
 
         vkCmdPushConstants(cmd, m_postprocessPipeline->getLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(postPush), &postPush);
         vkCmdDraw(cmd, 3, 1, 0, 0);

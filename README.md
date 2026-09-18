@@ -142,6 +142,7 @@ In Schritt 3 wurde Whiteout Delarus zu einem echten **First-Person Spiel** ausge
 | **1 / 2 / 3 / 4** | **Schnellreise: Base Camp / Gipfel / Lhotse / Ama Dablam** | Schnellreise |
 | **T** | **Tageszeit umschalten (Dawn Alpenglühen $\rightarrow$ Mittag $\rightarrow$ Sunset $\rightarrow$ Nacht)** | Tageszeit umschalten |
 | **B** | **Blizzard / Whiteout-Modus ein-/ausschalten (~30 m Sicht)** | Blizzard ein-/ausschalten |
+| **G** | **Kategorie-4 Gletscherbrille an-/absetzen (Polarisations-Blendschutz)** | Gletscherbrille an-/absetzen |
 | **L** | **Live Open-Meteo Wetter-Synchronisation an-/abkoppeln** | Live-Wetter an-/abkoppeln |
 | **ESC** | Mauszeiger freigeben / Beenden | Beenden |
 
@@ -843,10 +844,23 @@ Physikalisch exakte Modellierung der extremen Hochatmosphäre der Todeszone ($>7
     * CLI-Parameter `--hotspot <summit|hillary|southcol>` zur sofortigen Kamerapositionierung für wissenschaftliche Begutachtung und Screenshot-Verifikation.
     * Taste `8` für Direktsprung auf das Mount Everest Gipfelplateau (8.848 m).
     * Automatische HUD-Erkennung mit Proximity-Telemetrie bei Annäherung an alle drei Hotspots.
-* [ ] **Schritt 22 (1:1 Part XX): Viszerale Bergsteiger-Kryo-Optik:**
-  * Physikalische Kategorie-4-Gletscherbrille mit Brewster-Winkel-Polarisation gegen Schneeblendung.
-  * Atem-Kondensation und gefrierende Eisblumen an den Rändern der Gletscherbrille bei Anstrengung.
-  * Hypoxie- & Höhenrausch-Shader in der Todeszone: Periphere Sichtfeldeinengung (Tunnelblick), Entsättigung und Pulsieren im Takt der Herzfrequenz.
+* [x] **Schritt 22 (1:1 Part XX): Viszerale Bergsteiger-Kryo-Optik (Abgeschlossen):**
+  * **Physikalische Kategorie-4-Gletscherbrille (Cat 4 Glacier Goggles) mit Brewster-Polarisation:**
+    * Interaktives An- und Absetzen über Taste `G` oder CLI-Flag `--no-goggles` / `--goggles`.
+    * **Brewster-Winkel-Polarisation ($\theta_B \approx 53^\circ$):** Vertikal polarisierter optischer Filter absorbiert ca. 78 % der horizontalen Schnee- und Firnspiegelungen und eliminiert blendende Schneeblitze.
+    * **Mineralglas-Bernsteinton & Sastrugi-Kontrastkurve:** Spectral-Grading (`float3(1.08, 0.95, 0.74)`) dämpft kurzwelligen blauen Streudunst und schärft Gletscherspalten- und Wechtenkonturen im Schnee.
+    * **Lederner Seitenschutz (Side-Shield Frame Vignette):** Ergonomische Super-Ellipsen-Maske mit feiner Lederstruktur und mineralischer Randdispersion blockiert lateralen UV- und Streulichteinfall.
+  * **Photokeratitis (Schneeblendung) bei abgesetzter Brille:**
+    * In Höhenlagen > 5.200 m (bis 8.848 m am Gipfel) führt ungeschützter Blickkontakt mit 90 % Schnee-Albedo zu akuter Schneeblendung.
+    * Dynamische 4,2-fache Überbelichtung, gleißende weiße Schleierbildung, Hornhaut-Reflexe und schmerzhafte Netzhautsättigung.
+  * **Atem-Kondensation & Gefrierende Eisblumen (Frost Dendrites):**
+    * **Atemdynamik & Anstrengungsmodell:** Kopplung der Atemfrequenz (15 bis 54 Atemzüge/min) an Laufgeschwindigkeit, Hangneigung (> 20°) und barometrische Höhenhypoxie.
+    * **Atem-Kondensation (Fog):** Bei jedem Ausatmen steigt warmer Dampf aus der Sturmhaube auf die untere Linsenhälfte und streut Licht über Diffusions-Kernel. Fahrtwind und alpine Jetstream-Winde sorgen für kontinuierliche Ventilation.
+    * **Sub-Zero Eisblumen (Frost Dendrites):** Bei Temperaturen unter dem Gefrierpunkt (Gipfel -20 °C bis -40 °C) gefriert die kondensierte Feuchtigkeit an den kalten Fassungsrändern zu fraktalen, hexagonalen 60°-Eiskristallen, die langsam durch Sublimation abgebaut werden.
+  * **Hypoxie- & Höhenrausch-Shader in der Todeszone (> 8.000 m):**
+    * **Peripherer Tunnelblick (*Tunnel Vision*):** Sauerstoffmangel im Kapillarsystem schränkt das periphere Gesichtsfeld proportional zur $O_2$-Sättigung ein.
+    * **Zyanotische Netzhaut-Entsättigung:** Fading der Farbrezeptoren in kühles, fiebriges Zyanotik-Grau (`float3(0.88, 0.94, 1.06)`).
+    * **Kardiovaskulärer Herzschlag-Puls (120–165 bpm):** Arterielle Systole/Diastole-Wellenform moduliert rhythmisch den Tunnelradius und treibt einen tiefroten, venösen Gefäßstoß an den Sehfeldrändern an.
 * [ ] **Schritt 23 (1:1 Part XXI): Wave-Based Alpine Audio Raytracing:**
   * Akustisches Raytracing im $35\text{ km}$ Höhenmodell mit Infraschall-Echos brechender Eistürme an der 3.000 m hohen Nuptse-Wand.
   * Physikalisch brechender Orkanwind an Felsgraten und materialspezifische Steigeisen-Akustik (zersplitterndes Blankeis vs. knirschender Firn).

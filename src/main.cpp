@@ -78,6 +78,11 @@ int main(int argc, char* argv[]) {
         glm::vec3 customCamPos(0.0f);
         float customYaw = 0.0f, customPitch = 0.0f;
         bool triggerAvalancheOnStart = false;
+        bool hasGogglesOverride = false;
+        bool overrideGoggles = true;
+        float overrideFog = -1.0f;
+        float overrideFrost = -1.0f;
+        float overrideHypoxia = -1.0f;
 
         for (int i = 1; i < argc; i++) {
             if (std::string(argv[i]) == "--screenshot" || std::string(argv[i]) == "--headless-screenshot") {
@@ -86,6 +91,18 @@ int main(int argc, char* argv[]) {
                 initialPreset = std::atoi(argv[i + 1]);
             } else if (std::string(argv[i]) == "--avalanche") {
                 triggerAvalancheOnStart = true;
+            } else if (std::string(argv[i]) == "--no-goggles") {
+                hasGogglesOverride = true;
+                overrideGoggles = false;
+            } else if (std::string(argv[i]) == "--goggles") {
+                hasGogglesOverride = true;
+                overrideGoggles = true;
+            } else if (std::string(argv[i]) == "--fog" && i + 1 < argc) {
+                overrideFog = static_cast<float>(std::atof(argv[++i]));
+            } else if (std::string(argv[i]) == "--frost" && i + 1 < argc) {
+                overrideFrost = static_cast<float>(std::atof(argv[++i]));
+            } else if (std::string(argv[i]) == "--hypoxia" && i + 1 < argc) {
+                overrideHypoxia = static_cast<float>(std::atof(argv[++i]));
             } else if (std::string(argv[i]) == "--time" && i + 1 < argc) {
                 float t = static_cast<float>(std::atof(argv[i + 1]));
                 if (t >= 0.0f && t <= 4.0f && std::floor(t) == t) {
@@ -105,16 +122,22 @@ int main(int argc, char* argv[]) {
                     customYaw = -77.0f;
                     customPitch = -12.0f;
                     hasCustomCam = true;
+                    initialPreset = 8;
+                    player.teleportToPreset(8);
                 } else if (hs == "hillary" || hs == "step") {
                     customCamPos = glm::vec3(-8500.0f, 8754.0f, -8002.0f);
                     customYaw = 90.0f;
                     customPitch = 16.0f;
                     hasCustomCam = true;
+                    initialPreset = 2;
+                    player.teleportToPreset(2);
                 } else if (hs == "southcol" || hs == "camp4" || hs == "col") {
                     customCamPos = glm::vec3(-7743.0f, 8386.5f, -4991.5f);
                     customYaw = -49.4f;
                     customPitch = -18.0f;
                     hasCustomCam = true;
+                    initialPreset = 3;
+                    player.teleportToPreset(3);
                 }
             } else if (std::string(argv[i]) == "--cam" && i + 5 < argc) {
                 customCamPos.x = static_cast<float>(std::atof(argv[i + 1]));
@@ -126,7 +149,20 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        if (initialPreset >= 1 && initialPreset <= 8) {
+        if (hasGogglesOverride) {
+            player.setGogglesEquipped(overrideGoggles);
+        }
+        if (overrideFog >= 0.0f) {
+            player.setGogglesFog(overrideFog);
+        }
+        if (overrideFrost >= 0.0f) {
+            player.setGogglesFrost(overrideFrost);
+        }
+        if (overrideHypoxia >= 0.0f) {
+            player.setHypoxiaFactor(overrideHypoxia);
+        }
+
+        if (!hasCustomCam && initialPreset >= 1 && initialPreset <= 8) {
             player.teleportToPreset(initialPreset);
         }
 
@@ -168,10 +204,26 @@ int main(int argc, char* argv[]) {
                 renderer.queueFootstep(posRadius, dirDepth);
             }
 
-            int warmupFrames = triggerAvalancheOnStart ? 45 : 12;
+            int warmupFrames = triggerAvalancheOnStart ? 45 : 16;
             for (int f = 0; f < warmupFrames; f++) {
                 timer.tick();
                 weatherSystem.update(timer.deltaTime());
+                whiteout::core::WindowEventState idleInput{};
+                player.update(timer.deltaTime(), idleInput);
+                if (hasGogglesOverride) player.setGogglesEquipped(overrideGoggles);
+                if (overrideFog >= 0.0f) player.setGogglesFog(overrideFog);
+                if (overrideFrost >= 0.0f) player.setGogglesFrost(overrideFrost);
+                if (overrideHypoxia >= 0.0f) player.setHypoxiaFactor(overrideHypoxia);
+
+                if (hasCustomCam) {
+                    camera.setPosition(customCamPos);
+                    glm::vec3 lookDir;
+                    lookDir.x = std::cos(glm::radians(customYaw)) * std::cos(glm::radians(customPitch));
+                    lookDir.y = std::sin(glm::radians(customPitch));
+                    lookDir.z = std::sin(glm::radians(customYaw)) * std::cos(glm::radians(customPitch));
+                    camera.setLookAt(customCamPos + lookDir);
+                }
+
                 renderer.renderFrame(
                     camera,
                     timer.totalTime(),
@@ -180,7 +232,8 @@ int main(int argc, char* argv[]) {
                     weatherSystem.getCloudDensity(),
                     weatherSystem.getCloudBase(),
                     weatherSystem.getBlizzardFactor(),
-                    weatherSystem.getWindSpeed()
+                    weatherSystem.getWindSpeed(),
+                    player.getCryoOpticsState()
                 );
             }
             renderer.saveScreenshot(screenshotPath);
@@ -240,7 +293,8 @@ int main(int argc, char* argv[]) {
                 weatherSystem.getCloudDensity(),
                 weatherSystem.getCloudBase(),
                 weatherSystem.getBlizzardFactor(),
-                weatherSystem.getWindSpeed()
+                weatherSystem.getWindSpeed(),
+                player.getCryoOpticsState()
             );
 
             // Realtime HUD & Telemetry in window title

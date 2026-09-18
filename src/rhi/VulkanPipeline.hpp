@@ -36,6 +36,8 @@ struct PostProcessPushConstants {
     glm::vec2 resolution;   // screen width, height
     float time;             // total elapsed time
     float blizzard;         // blizzard factor [0, 1]
+    glm::vec4 cryoParams1;  // x = gogglesEquipped (0/1), y = gogglesFog (0..1), z = frostAmount (0..1), w = snowBlindness (0..1)
+    glm::vec4 cryoParams2;  // x = hypoxiaFactor (0..1), y = heartbeatPulse (0..1), z = oxygenSaturation (0..100), w = altitude (m)
 };
 
 class VulkanPipeline {

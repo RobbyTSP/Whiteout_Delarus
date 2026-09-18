@@ -13,6 +13,18 @@
 
 namespace whiteout::renderer {
 
+// Step 22 (1:1 Part XX): Visceral Mountaineer Cryo-Optics
+struct CryoOpticsState {
+    bool gogglesEquipped = true;
+    float gogglesFog = 0.0f;          // 0.0 to 1.0 (breath condensation on lens)
+    float gogglesFrost = 0.0f;        // 0.0 to 1.0 (frozen dendritic ice crystals at edges)
+    float snowBlindness = 0.0f;       // 0.0 to 1.0 (photokeratitis overexposure without goggles)
+    float hypoxiaFactor = 0.0f;       // 0.0 to 1.0 (death zone cerebral hypoxia tunnel vision)
+    float heartbeatPulse = 0.0f;      // 0.0 to 1.0 (cardiovascular systole/diastole pulse)
+    float oxygenSaturation = 100.0f;  // % barometric arterial O2
+    float altitude = 5364.0f;         // meters above sea level
+};
+
 class Renderer {
 public:
     explicit Renderer(core::Window& window);
@@ -29,7 +41,8 @@ public:
         float cloudDensity = 0.75f,
         float cloudBase = 4950.0f,
         float blizzardFactor = 0.0f,
-        float windSpeed = 30.0f
+        float windSpeed = 30.0f,
+        const CryoOpticsState& cryoOptics = CryoOpticsState{}
     );
     void onResize();
     bool saveScreenshot(const std::string& filepath);

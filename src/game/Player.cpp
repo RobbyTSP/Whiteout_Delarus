@@ -132,6 +132,13 @@ void Player::update(float deltaTime, const core::WindowEventState& input) {
         toggleMode();
     }
 
+    if (input.toggleGoggles) {
+        toggleGoggles();
+        std::cout << "[Player] Glacier Goggles (Cat-4 Polarized) "
+                  << (m_gogglesEquipped ? "EQUIPPED [Brewster Glare Shield Active]" : "REMOVED [Extreme Photokeratitis Warning!]")
+                  << std::endl;
+    }
+
     if (input.teleportPreset >= 1 && input.teleportPreset <= 8) {
         teleportToPreset(input.teleportPreset);
     }
@@ -313,6 +320,74 @@ void Player::updateFirstPerson(float deltaTime, const core::WindowEventState& in
     lookDir.y = std::sin(glm::radians(m_pitch));
     lookDir.z = std::sin(glm::radians(m_yaw)) * std::cos(glm::radians(m_pitch));
     m_camera.setLookAt(eyePos + lookDir);
+
+    // 9. Step 22 (1:1 Part XX): Visceral Mountaineer Cryo-Optics & Alpine Physiology
+    float currentSpeed = glm::length(glm::vec2(m_velocity.x, m_velocity.z));
+    float speedRatio = std::clamp(currentSpeed / m_sprintSpeed, 0.0f, 1.0f);
+    float slopeExertion = (m_currentSlope > 20.0f) ? std::clamp((m_currentSlope - 20.0f) / 35.0f, 0.0f, 1.0f) : 0.0f;
+    float altExertion = (m_position.y > 6000.0f) ? std::clamp((m_position.y - 6000.0f) / 2848.0f, 0.0f, 0.6f) : 0.0f;
+    float targetExertion = 0.12f + (input.sprint ? 0.45f : 0.20f * speedRatio) + slopeExertion * 0.35f + altExertion;
+    m_exertion = glm::mix(m_exertion, std::clamp(targetExertion, 0.1f, 1.0f), std::clamp(3.0f * deltaTime, 0.0f, 1.0f));
+
+    // Respiration & breath condensation
+    float breathsPerSec = 0.25f + m_exertion * 0.65f; // ~15 to 54 breaths/min
+    m_breathPhase += deltaTime * breathsPerSec * 2.0f * 3.14159265f;
+    if (m_breathPhase > 6.2831853f) m_breathPhase -= 6.2831853f;
+
+    float exhalation = std::max(0.0f, std::sin(m_breathPhase));
+    float windSpeedKmh = m_currentGeology.jetStreamSpeedKmh;
+
+    if (m_gogglesEquipped) {
+        // Warm moist breath condenses on inner goggle lens
+        float fogDeposit = exhalation * m_exertion * 0.48f;
+        m_gogglesFog += fogDeposit * deltaTime;
+
+        // Ambient ventilation from forward motion and alpine headwind sweeps fog away
+        float ventilation = 0.08f + (currentSpeed / 4.5f) * 0.28f + (windSpeedKmh / 120.0f) * 0.20f;
+        m_gogglesFog -= ventilation * deltaTime;
+        m_gogglesFog = std::clamp(m_gogglesFog, 0.0f, 1.0f);
+
+        // Sub-zero frost crystallization: moisture freezes along cold frame margins
+        float frostThreshold = 0.10f;
+        if (m_gogglesFog > frostThreshold && m_currentGeology.windChillCelsius < -5.0f) {
+            float freezeRate = 0.055f * (m_gogglesFog - frostThreshold) * std::clamp(std::abs(m_currentGeology.windChillCelsius) / 25.0f, 0.2f, 2.5f);
+            m_gogglesFrost += freezeRate * deltaTime;
+        }
+
+        // Sublimation in dry thin air
+        float sublimationRate = 0.006f + (windSpeedKmh / 150.0f) * 0.010f;
+        m_gogglesFrost -= sublimationRate * deltaTime;
+        m_gogglesFrost = std::clamp(m_gogglesFrost, 0.0f, 1.0f);
+
+        // Recovery from snow blindness when wearing Cat-4 polarized glacier goggles
+        m_snowBlindness = glm::mix(m_snowBlindness, 0.0f, std::clamp(3.5f * deltaTime, 0.0f, 1.0f));
+    } else {
+        // Goggles removed: breath mist clears instantly
+        m_gogglesFog = std::max(0.0f, m_gogglesFog - 3.5f * deltaTime);
+
+        // Snow Blindness (Photokeratitis) at altitude (>5,200m) without Cat-4 protection
+        float targetBlindness = std::clamp((m_position.y - 5200.0f) / 2600.0f, 0.0f, 1.0f);
+        m_snowBlindness = glm::mix(m_snowBlindness, targetBlindness, std::clamp(2.5f * deltaTime, 0.0f, 1.0f));
+    }
+
+    // Death Zone Hypoxia (>8,000m)
+    float o2 = getOxygenSaturation();
+    float baseHypoxia = std::clamp((m_position.y - 7850.0f) / 950.0f, 0.0f, 1.0f);
+    float exertionBoost = 1.0f + m_exertion * 0.35f;
+    m_hypoxiaFactor = std::clamp(baseHypoxia * exertionBoost, 0.0f, 1.0f);
+
+    // Cardiovascular heart rate & arterial pulse
+    float targetBpm = 68.0f + (1.0f - o2 / 100.0f) * 65.0f + m_exertion * 35.0f;
+    m_heartRateBpm = glm::mix(m_heartRateBpm, targetBpm, std::clamp(1.5f * deltaTime, 0.0f, 1.0f));
+
+    float bps = m_heartRateBpm / 60.0f;
+    m_pulsePhase += deltaTime * bps * 2.0f * 3.14159265f;
+    if (m_pulsePhase > 6.2831853f) m_pulsePhase -= 6.2831853f;
+
+    float sinP = std::sin(m_pulsePhase);
+    float systole = std::pow(std::max(0.0f, sinP), 5.0f);
+    float dicrotic = 0.32f * std::pow(std::max(0.0f, std::sin(m_pulsePhase - 0.75f)), 9.0f);
+    m_heartbeatPulse = std::clamp(systole + dicrotic, 0.0f, 1.0f);
 }
 
 void Player::updateFreeFlight(float deltaTime, const core::WindowEventState& input) {
@@ -320,6 +395,33 @@ void Player::updateFreeFlight(float deltaTime, const core::WindowEventState& inp
     m_position = m_camera.getPosition();
     m_currentGeology = m_collider.getGeologyInfo(m_position.x, m_position.z);
     m_currentSlope = m_currentGeology.slopeDegrees;
+
+    // High altitude hypoxia & pulse dynamics in free flight
+    float o2 = getOxygenSaturation();
+    float baseHypoxia = std::clamp((m_position.y - 7850.0f) / 950.0f, 0.0f, 1.0f);
+    m_hypoxiaFactor = std::clamp(baseHypoxia, 0.0f, 1.0f);
+
+    float targetBpm = 68.0f + (1.0f - o2 / 100.0f) * 55.0f;
+    m_heartRateBpm = glm::mix(m_heartRateBpm, targetBpm, std::clamp(1.5f * deltaTime, 0.0f, 1.0f));
+
+    float bps = m_heartRateBpm / 60.0f;
+    m_pulsePhase += deltaTime * bps * 2.0f * 3.14159265f;
+    if (m_pulsePhase > 6.2831853f) m_pulsePhase -= 6.2831853f;
+    float sinP = std::sin(m_pulsePhase);
+    m_heartbeatPulse = std::pow(std::max(0.0f, sinP), 5.0f);
+}
+
+renderer::CryoOpticsState Player::getCryoOpticsState() const {
+    renderer::CryoOpticsState state{};
+    state.gogglesEquipped = m_gogglesEquipped;
+    state.gogglesFog = m_gogglesFog;
+    state.gogglesFrost = m_gogglesFrost;
+    state.snowBlindness = m_snowBlindness;
+    state.hypoxiaFactor = m_hypoxiaFactor;
+    state.heartbeatPulse = m_heartbeatPulse;
+    state.oxygenSaturation = getOxygenSaturation();
+    state.altitude = m_position.y;
+    return state;
 }
 
 std::string Player::getTelemetryString() const {
@@ -340,6 +442,17 @@ std::string Player::getTelemetryString() const {
            << " | Footing: " << m_currentGeology.surfaceTypeName
            << " | Jet Stream: WNW " << static_cast<int>(m_currentGeology.jetStreamSpeedKmh) << " km/h"
            << " (Chill: " << static_cast<int>(m_currentGeology.windChillCelsius) << "°C)";
+
+        // Step 22: Cryo-Optics HUD telemetry
+        ss << " | [G]: Goggles (" << (m_gogglesEquipped ? "Cat-4 Polarized" : "OFF - Photokeratitis Blinding!") << ")";
+        if (m_gogglesEquipped) {
+            ss << " [Fog: " << static_cast<int>(m_gogglesFog * 100.0f) << "%"
+               << ", Frost: " << static_cast<int>(m_gogglesFrost * 100.0f) << "%]";
+        }
+        ss << " | BPM: " << static_cast<int>(m_heartRateBpm);
+        if (isInDeathZone()) {
+            ss << " | Hypoxia: " << static_cast<int>(m_hypoxiaFactor * 100.0f) << "%";
+        }
 
         // Hotspot Proximity Recognition (Step 18 & Step 21 3DGS)
         float dSummit = glm::length(glm::vec2(m_position.x - (-8462.64f), m_position.z - (-8057.24f)));
@@ -368,11 +481,12 @@ std::string Player::getTelemetryString() const {
         ss << "[DRONE FLY] "
            << "Alt: " << static_cast<int>(m_position.y) << "m | "
            << "Formation: " << m_currentGeology.formationName << " | "
+           << "BPM: " << static_cast<int>(m_heartRateBpm) << " | "
            << "Pos: (" << static_cast<int>(m_position.x) << ", " << static_cast<int>(m_position.z) << ") | "
            << "Far: 150km";
     }
 
-    ss << " | [Tab/V]: Mode | [1-8]: Teleport (1:BC, 2:Hillary, 3:SouthCol, 4:AmaDablam, 5:Icefall, 6:ThirdStep, 7:WesternCwm, 8:Summit)";
+    ss << " | [Tab/V]: Mode | [G]: Goggles | [1-8]: Teleport (1:BC, 2:Hillary, 3:SouthCol, 4:AmaDablam, 5:Icefall, 6:ThirdStep, 7:WesternCwm, 8:Summit)";
     return ss.str();
 }
 

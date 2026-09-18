@@ -132,6 +132,7 @@ WindowEventState Window::pollEvents() {
                     case SDLK_b: if (isDown) m_lastEvents.toggleBlizzard = true; break;
                     case SDLK_l: if (isDown) m_lastEvents.toggleLiveWeather = true; break;
                     case SDLK_k: if (isDown) m_lastEvents.triggerAvalanche = true; break;
+                    case SDLK_g: if (isDown) m_lastEvents.toggleGoggles = true; break;
                     default: break;
                 }
                 break;
